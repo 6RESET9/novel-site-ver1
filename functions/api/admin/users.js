@@ -87,6 +87,18 @@ export async function onRequestDelete(context) {
   return Response.json({ success: true, message: `管理员 ${user.username} 已删除` });
 }
 
+// 定义允许更新的字段白名单及其验证函数
+const ALLOWED_UPDATE_FIELDS = {
+  'role': {
+    validate: (v) => ['super_admin', 'admin', 'demo'].includes(v),
+    errorMsg: '无效的角色值'
+  },
+  'password_locked': {
+    validate: (v) => v === 0 || v === 1,
+    errorMsg: '无效的锁定状态'
+  }
+};
+
 // PUT: 修改管理员角色
 export async function onRequestPut(context) {
   const { request, env } = context;
@@ -104,8 +116,10 @@ export async function onRequestPut(context) {
   if (!hasRole && !hasPwdLock) return Response.json({ error: '缺少参数' }, { status: 400 });
 
   if (hasRole) {
-    const validRoles = ['super_admin', 'admin', 'demo'];
-    if (!validRoles.includes(body.role)) return Response.json({ error: '无效的角色' }, { status: 400 });
+    // 使用白名单验证角色值
+    if (!ALLOWED_UPDATE_FIELDS.role.validate(body.role)) {
+      return Response.json({ error: ALLOWED_UPDATE_FIELDS.role.errorMsg }, { status: 400 });
+    }
 
     // 不能降级自己
     if (String(body.id) === String(auth.userId) && body.role !== 'super_admin') {
@@ -122,7 +136,12 @@ export async function onRequestPut(context) {
     }
   }
 
-  // 构建动态 UPDATE
+  // 验证 password_locked 值
+  if (hasPwdLock && !ALLOWED_UPDATE_FIELDS.password_locked.validate(body.password_locked)) {
+    return Response.json({ error: ALLOWED_UPDATE_FIELDS.password_locked.errorMsg }, { status: 400 });
+  }
+
+  // 构建安全的更新语句 - 字段名来自代码硬编码，值通过参数化传递
   const sets = [];
   const binds = [];
   if (hasRole) { sets.push('role = ?'); binds.push(body.role); }

@@ -2,8 +2,13 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>管理后台</title>
+  
+  <!-- P3修复：DNS预解析和预连接 -->
+  <link rel="preconnect" href="https://github.com" crossorigin>
+  <link rel="dns-prefetch" href="https://github.com">
+  
   <link rel="stylesheet" href="/style.css">
   <script src="/jszip.min.js"></script>
 </head>
@@ -554,7 +559,10 @@
         localStorage.setItem('last_username', username);
         saveAuth('', data.role || 'demo', data.userId || 0);
         showAdminPanel(data.username, currentRole);
-      } catch(e) { showMsg('login-msg', e.message, 'error'); }
+      } catch(e) {
+        document.getElementById('login-pass').value = '';
+        showMsg('login-msg', e.message, 'error');
+      }
     }
 
     async function checkSession() {
@@ -628,7 +636,14 @@
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
         showMsg('pwd-msg','密码已修改，请重新登录','success');
-        setTimeout(()=>doLogout(), 2000);
+        // 清除所有认证状态并跳转到登录页
+        setTimeout(() => {
+          clearAuth();
+          sessionStorage.clear();
+          localStorage.removeItem('last_username');
+          localStorage.removeItem('remember_login');
+          window.location.href = '/admin.html';
+        }, 2000);
       } catch(e) { showMsg('pwd-msg',e.message,'error'); }
     }
 
@@ -1230,6 +1245,82 @@
     }
     function esc(s) { const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML.replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
+    // DRM检测函数：扩展检测多种DRM加密类型
+    async function checkEPUBDRM(zip) {
+      try {
+        const encryptionXml = await zip.file('META-INF/encryption.xml')?.async('text').catch(() => null);
+        
+        if (!encryptionXml) {
+          return { hasDRM: false };
+        }
+
+        const encDoc = new DOMParser().parseFromString(encryptionXml, 'application/xml');
+        
+        // 检查多种DRM标识元素
+        const drmIndicators = [
+          'EncryptedData',
+          'EncryptedKey',
+          'CipherReference',
+          'CipherValue',
+          'enc\\:EncryptedData',
+          'adept\\:encrypted'
+        ];
+        
+        for (const indicator of drmIndicators) {
+          try {
+            if (encDoc.querySelectorAll(indicator).length > 0) {
+              return {
+                hasDRM: true,
+                reason: `检测到加密元素: ${indicator.replace(/\\/g, '')}`
+              };
+            }
+          } catch (e) {
+            // 选择器可能无效，继续尝试下一个
+          }
+        }
+        
+        // 检查特定的DRM命名空间
+        const drmNamespaces = [
+          'urn:uuid:6b3d3c40-ebc3-11d9-8e3a-0002b3ae9c49', // Adobe Adept
+          'http://www.w3.org/2001/04/xmlenc#', // XML Encryption
+          'http://ns.adobe.com/adept' // Adobe Adept
+        ];
+        
+        const rootElement = encDoc.documentElement;
+        const xmlns = rootElement.getAttribute('xmlns') || '';
+        
+        for (const ns of drmNamespaces) {
+          if (xmlns.includes(ns)) {
+            return {
+              hasDRM: true,
+              reason: '检测到DRM命名空间'
+            };
+          }
+        }
+        
+        // 检查所有元素的属性中是否包含DRM相关关键词
+        const allElements = encDoc.querySelectorAll('*');
+        for (const el of allElements) {
+          const attrs = el.attributes;
+          for (let i = 0; i < attrs.length; i++) {
+            const attrValue = attrs[i].value.toLowerCase();
+            if (attrValue.includes('encryption') || attrValue.includes('adept') || attrValue.includes('drm')) {
+              return {
+                hasDRM: true,
+                reason: '检测到加密相关属性'
+              };
+            }
+          }
+        }
+        
+        return { hasDRM: false };
+      } catch (e) {
+        console.error('DRM检测出错:', e);
+        // 检测出错时保守处理，返回无DRM但记录警告
+        return { hasDRM: false };
+      }
+    }
+
     document.getElementById('chapter-content').addEventListener('input',function(){
       document.getElementById('word-count').textContent=this.value.trim().length;
     });
@@ -1359,6 +1450,10 @@
         const res = await api('PUT', '/api/admin/users', { id, role });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
+        // 如果修改的是当前用户自己的角色，需要重新检查会话
+        if (id === currentUserId) {
+          await checkSession();
+        }
         loadAdminUsers();
       } catch(e) { alert(e.message); loadAdminUsers(); }
     }
@@ -1600,13 +1695,10 @@
         const containerXml = await zip.file('META-INF/container.xml')?.async('text');
         if (!containerXml) throw new Error('无效的 EPUB 文件：缺少 META-INF/container.xml');
 
-        // 🟢-3: DRM 加密检测
-        const encryptionXml = await zip.file('META-INF/encryption.xml')?.async('text');
-        if (encryptionXml) {
-          const encDoc = new DOMParser().parseFromString(encryptionXml, 'application/xml');
-          if (encDoc.querySelectorAll('EncryptedData').length > 0) {
-            throw new Error('此 EPUB 文件包含 DRM 加密，无法导入。请使用未加密的 EPUB 文件。');
-          }
+        // 🟢-3: DRM 加密检测（扩展检测逻辑）
+        const drmCheckResult = await checkEPUBDRM(zip);
+        if (drmCheckResult.hasDRM) {
+          throw new Error(`此 EPUB 文件包含 DRM 加密（${drmCheckResult.reason}），无法导入。请使用未加密的 EPUB 文件。`);
         }
 
         const containerDoc = new DOMParser().parseFromString(containerXml, 'application/xml');

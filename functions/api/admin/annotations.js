@@ -1,5 +1,15 @@
 import { checkAdmin } from '../_utils.js';
 
+// 定义允许的状态和可见性值白名单
+const VALID_STATUSES = ['normal', 'reported', 'removed'];
+const VALID_VISIBILITIES = ['public', 'private'];
+// 定义允许的排序方式白名单
+const VALID_SORT_OPTIONS = {
+  'latest': 'a.created_at DESC',
+  'oldest': 'a.created_at ASC',
+  'reports': 'a.created_at DESC' // reports 排序需要子查询，暂时用 created_at
+};
+
 // 权限过滤
 function buildPermissionFilter(auth) {
   const where = [];
@@ -17,6 +27,15 @@ function buildPermissionFilter(auth) {
   }
 
   return { where, binds };
+}
+
+/**
+ * 转义LIKE查询中的通配符，防止LIKE注入
+ * @param {string} str - 需要转义的字符串
+ * @returns {string} - 转义后的字符串
+ */
+function escapeLikePattern(str) {
+  return str.replace(/[%_\\]/g, '\\$&');
 }
 
 // GET /api/admin/annotations - 批注列表
@@ -41,13 +60,15 @@ export async function onRequestGet(context) {
 
   // 构建查询条件
   const { where, binds } = buildPermissionFilter(auth);
-  
-  const VALID_STATUSES = ['normal', 'reported', 'removed'];
-  const VALID_VISIBILITIES = ['public', 'private'];
 
   if (bookId) {
+    // 验证bookId为有效数字
+    const bookIdNum = parseInt(bookId, 10);
+    if (isNaN(bookIdNum) || bookIdNum <= 0) {
+      return Response.json({ error: '无效的书籍ID' }, { status: 400 });
+    }
     where.push('a.book_id = ?');
-    binds.push(bookId);
+    binds.push(bookIdNum);
   }
   if (status && status !== 'all') {
     if (!VALID_STATUSES.includes(status)) return Response.json({ error: '无效的状态' }, { status: 400 });
@@ -60,16 +81,16 @@ export async function onRequestGet(context) {
     binds.push(visibility);
   }
   if (search) {
-    where.push('(a.content LIKE ? OR a.sent_text LIKE ?)');
-    binds.push(`%${search}%`, `%${search}%`);
+    // 转义LIKE通配符，防止LIKE注入攻击
+    const escapedSearch = escapeLikePattern(search);
+    where.push('(a.content LIKE ? ESCAPE "\\\\" OR a.sent_text LIKE ? ESCAPE "\\\\")');
+    binds.push(`%${escapedSearch}%`, `%${escapedSearch}%`);
   }
 
   const whereClause = where.length > 0 ? 'WHERE ' + where.join(' AND ') : '';
   
-  // 排序
-  let orderBy = 'a.created_at DESC';
-  if (sort === 'oldest') orderBy = 'a.created_at ASC';
-  // reports 排序需要子查询，暂时用 created_at
+  // 使用白名单验证排序字段，防止SQL注入
+  const orderBy = VALID_SORT_OPTIONS[sort] || VALID_SORT_OPTIONS['latest'];
 
   // 查询总数
   const countSql = `

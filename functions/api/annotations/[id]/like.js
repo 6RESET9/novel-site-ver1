@@ -38,16 +38,31 @@ export async function onRequestPost(context) {
   ).bind(annoId, auth.userId).first();
 
   if (existing) {
-    // 取消点赞
-    await env.DB.prepare(
+    // 取消点赞 - 使用原子操作避免竞态条件
+    const result = await env.DB.prepare(
       'DELETE FROM annotation_likes WHERE annotation_id = ? AND user_id = ?'
     ).bind(annoId, auth.userId).run();
-    return Response.json({ liked: false });
+    
+    // 检查是否实际删除了记录
+    if (result.meta.changes > 0) {
+      return Response.json({ liked: false });
+    } else {
+      // 记录已被其他请求删除，返回当前状态
+      return Response.json({ liked: false });
+    }
   } else {
-    // 点赞
-    await env.DB.prepare(
-      'INSERT INTO annotation_likes (annotation_id, user_id) VALUES (?, ?)'
-    ).bind(annoId, auth.userId).run();
-    return Response.json({ liked: true });
+    // 点赞 - 使用 INSERT OR IGNORE 避免重复插入的竞态条件
+    try {
+      await env.DB.prepare(
+        'INSERT OR IGNORE INTO annotation_likes (annotation_id, user_id) VALUES (?, ?)'
+      ).bind(annoId, auth.userId).run();
+      return Response.json({ liked: true });
+    } catch (e) {
+      // 如果插入失败（如唯一约束冲突），检查当前状态
+      const checkExisting = await env.DB.prepare(
+        'SELECT 1 FROM annotation_likes WHERE annotation_id = ? AND user_id = ?'
+      ).bind(annoId, auth.userId).first();
+      return Response.json({ liked: !!checkExisting });
+    }
   }
 }

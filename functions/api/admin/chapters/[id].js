@@ -103,16 +103,40 @@ export async function onRequestDelete(context) {
     return Response.json({ error: '只能删除自己书籍的章节' }, { status: 403 });
   }
 
-  await env.DB.prepare('DELETE FROM chapter_stats WHERE chapter_id = ?').bind(params.id).run().catch(() => {});
-  await env.DB.prepare('DELETE FROM votes WHERE annotation_id IN (SELECT id FROM annotations WHERE chapter_id = ?)').bind(params.id).run().catch(() => {});
-  await env.DB.prepare('DELETE FROM reports WHERE annotation_id IN (SELECT id FROM annotations WHERE chapter_id = ?)').bind(params.id).run().catch(() => {});
-  await env.DB.prepare('DELETE FROM annotation_likes WHERE annotation_id IN (SELECT id FROM annotations WHERE chapter_id = ?)').bind(params.id).run().catch(() => {});
-  await env.DB.prepare('DELETE FROM annotations WHERE chapter_id = ?').bind(params.id).run().catch(() => {});
-  await env.DB.prepare('DELETE FROM chapters WHERE id = ?').bind(params.id).run();
-  await env.R2.delete(chapter.content_key).catch(() => {});
-
-  await env.DB.prepare("UPDATE books SET updated_at = datetime('now') WHERE id = ?")
-    .bind(chapter.book_id).run();
-
-  return Response.json({ success: true });
+  // 使用批量操作确保数据一致性
+  // 注意：D1不支持传统事务，但支持batch操作
+  try {
+    // 先删除关联数据，再删除章节本身
+    // 使用batch确保原子性
+    const deleteStatements = [
+      env.DB.prepare('DELETE FROM chapter_stats WHERE chapter_id = ?').bind(params.id),
+      env.DB.prepare('DELETE FROM annotation_likes WHERE annotation_id IN (SELECT id FROM annotations WHERE chapter_id = ?)').bind(params.id),
+      env.DB.prepare('DELETE FROM reports WHERE annotation_id IN (SELECT id FROM annotations WHERE chapter_id = ?)').bind(params.id),
+      env.DB.prepare('DELETE FROM votes WHERE annotation_id IN (SELECT id FROM annotations WHERE chapter_id = ?)').bind(params.id),
+      env.DB.prepare('DELETE FROM annotations WHERE chapter_id = ?').bind(params.id),
+      env.DB.prepare('DELETE FROM chapters WHERE id = ?').bind(params.id),
+      env.DB.prepare("UPDATE books SET updated_at = datetime('now') WHERE id = ?").bind(chapter.book_id)
+    ];
+    
+    // 执行批量操作
+    const batchResult = await env.DB.batch(deleteStatements);
+    
+    // 检查章节是否成功删除
+    const chapterDeleteResult = batchResult[5];
+    if (chapterDeleteResult.meta.changes === 0) {
+      console.error('Chapter deletion failed: no rows affected');
+      return Response.json({ error: '删除章节失败' }, { status: 500 });
+    }
+    
+    // 删除R2中的内容（在数据库操作成功后执行）
+    await env.R2.delete(chapter.content_key).catch((e) => {
+      console.error('Failed to delete R2 content:', e);
+      // R2删除失败不影响整体操作，但记录日志
+    });
+    
+    return Response.json({ success: true });
+  } catch (e) {
+    console.error('Chapter deletion error:', e);
+    return Response.json({ error: '删除章节失败: ' + e.message }, { status: 500 });
+  }
 }

@@ -2,8 +2,13 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>批注管理 - 我的书架</title>
+  
+  <!-- P3修复：DNS预解析和预连接 -->
+  <link rel="preconnect" href="https://github.com" crossorigin>
+  <link rel="dns-prefetch" href="https://github.com">
+  
   <link rel="stylesheet" href="/style.css">
   <style>
     body { background: var(--bg); min-height: 100vh; }
@@ -137,6 +142,30 @@
     .report-actions button.btn-remove:hover { background: #dc2626; color: #fff; }
     .report-actions button.btn-keep { border-color: #16a34a; color: #16a34a; }
     .report-actions button.btn-keep:hover { background: #16a34a; color: #fff; }
+    
+    /* P2修复：确认对话框样式 */
+    .confirm-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5); z-index: 1000;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .confirm-dialog {
+      background: var(--card-bg); border-radius: var(--radius);
+      padding: 20px; max-width: 400px; width: 90%;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+    }
+    .confirm-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; color: var(--text); }
+    .confirm-message { font-size: 14px; color: var(--text-light); line-height: 1.6; margin-bottom: 20px; }
+    .confirm-actions { display: flex; gap: 12px; justify-content: flex-end; }
+    .confirm-btn {
+      padding: 8px 20px; border-radius: var(--radius); font-size: 14px;
+      cursor: pointer; border: 1px solid var(--border); background: var(--card-bg);
+      color: var(--text); transition: all 0.2s;
+    }
+    .confirm-btn:hover { border-color: var(--accent); }
+    .confirm-btn.confirm { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .confirm-btn.confirm.danger { background: #dc2626; border-color: #dc2626; }
+    .confirm-btn.confirm.danger:hover { background: #b91c1c; }
   </style>
 </head>
 <body>
@@ -495,14 +524,70 @@
       if (currentPage < totalPages) { currentPage++; loadAnnotations(); }
     });
 
+    // P2修复：批量操作确认对话框
+    // 创建自定义确认对话框
+    function showConfirmDialog(title, message, confirmText, isDanger = false) {
+      return new Promise((resolve) => {
+        // 创建对话框元素
+        const overlay = document.createElement('div');
+        overlay.className = 'confirm-overlay';
+        overlay.innerHTML = `
+          <div class="confirm-dialog">
+            <div class="confirm-title">${title}</div>
+            <div class="confirm-message">${message}</div>
+            <div class="confirm-actions">
+              <button class="confirm-btn cancel">取消</button>
+              <button class="confirm-btn confirm ${isDanger ? 'danger' : ''}">${confirmText}</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+        
+        // 绑定事件
+        const cancelBtn = overlay.querySelector('.cancel');
+        const confirmBtn = overlay.querySelector('.confirm');
+        
+        const close = (result) => {
+          overlay.remove();
+          resolve(result);
+        };
+        
+        cancelBtn.addEventListener('click', () => close(false));
+        confirmBtn.addEventListener('click', () => close(true));
+        overlay.addEventListener('click', (e) => {
+          if (e.target === overlay) close(false);
+        });
+        
+        // 聚焦到确认按钮
+        confirmBtn.focus();
+      });
+    }
+
     // 批量操作
     document.getElementById('batch-remove').addEventListener('click', async () => {
-      if (!confirm(`确定移除选中的 ${selectedIds.size} 条批注？`)) return;
+      const count = selectedIds.size;
+      const confirmed = await showConfirmDialog(
+        '批量移除确认',
+        `确定要移除选中的 <strong>${count}</strong> 条批注吗？<br><small style="color:var(--text-light)">移除后批注将不再公开显示，但可通过"恢复"功能恢复。</small>`,
+        '确认移除',
+        true
+      );
+      if (!confirmed) return;
+      
       const res = await api('POST', '/api/admin/annotations/batch', { ids: [...selectedIds], action: 'remove' });
       if (res.ok) { selectedIds.clear(); updateBatchBar(); loadAnnotations(); loadStats(); }
       else alert('操作失败');
     });
     document.getElementById('batch-restore').addEventListener('click', async () => {
+      const count = selectedIds.size;
+      const confirmed = await showConfirmDialog(
+        '批量恢复确认',
+        `确定要恢复选中的 <strong>${count}</strong> 条批注吗？`,
+        '确认恢复',
+        false
+      );
+      if (!confirmed) return;
+      
       const res = await api('POST', '/api/admin/annotations/batch', { ids: [...selectedIds], action: 'restore' });
       if (res.ok) { selectedIds.clear(); updateBatchBar(); loadAnnotations(); loadStats(); }
       else alert('操作失败');

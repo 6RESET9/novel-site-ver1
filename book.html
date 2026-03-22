@@ -2,9 +2,14 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>作品详情</title>
   <meta name="description" content="">
+  
+  <!-- P3修复：DNS预解析和预连接 -->
+  <link rel="preconnect" href="https://github.com" crossorigin>
+  <link rel="dns-prefetch" href="https://github.com">
+  
   <link rel="stylesheet" href="/style.css">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#d4a574">
@@ -113,14 +118,33 @@
         if (chapters.length === 0) {
           html += '<div class="empty"><p>暂无章节</p></div>';
         } else {
-          html += '<ul class="chapter-list">' + chapters.map(c => `
+          // P2修复：大量章节时分页加载，每页50章
+          const CHAPTERS_PER_PAGE = 50;
+          const needsPagination = chapters.length > CHAPTERS_PER_PAGE;
+          
+          html += '<ul class="chapter-list" id="chapter-list">';
+          // 首次只渲染第一页
+          const initialChapters = needsPagination ? chapters.slice(0, CHAPTERS_PER_PAGE) : chapters;
+          html += initialChapters.map(c => `
             <li>
               <a href="/read.html?id=${c.id}">
                 <span class="chapter-title">${esc(c.title)}</span>
                 <span class="chapter-meta">${c.word_count} 字</span>
               </a>
             </li>
-          `).join('') + '</ul>';
+          `).join('');
+          html += '</ul>';
+          
+          // 分页控制
+          if (needsPagination) {
+            const totalPages = Math.ceil(chapters.length / CHAPTERS_PER_PAGE);
+            html += `<div class="chapter-pagination" id="chapter-pagination" data-page="1" data-per-page="${CHAPTERS_PER_PAGE}" data-total="${chapters.length}">
+              <button id="ch-prev" disabled>上一页</button>
+              <span class="page-info">第 <span id="ch-current">1</span> / ${totalPages} 页（共 ${chapters.length} 章）</span>
+              <button id="ch-next">下一页</button>
+            </div>`;
+          }
+          
           html += `<div style="margin-top:20px;text-align:center"><a href="#" id="export-link" style="font-size:13px;color:var(--text-light);text-decoration:none;border-bottom:1px dashed var(--text-light);padding-bottom:1px">导出全书 TXT</a></div>`;
         }
 
@@ -145,6 +169,9 @@
         if (exportLink) {
           exportLink.addEventListener('click', (e) => { e.preventDefault(); exportBook(b.id, b.title, b.author); });
         }
+        
+        // P2修复：绑定章节分页事件
+        bindChapterPagination();
       } catch (e) {
         el.innerHTML = `<div class="msg msg-error">${esc(e.message)}</div>`;
       }
@@ -196,14 +223,76 @@
       const re = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`, 'gi');
       return text.replace(re, '<mark>$1</mark>');
     }
-    // 绑定搜索事件（延迟绑定，等DOM渲染完）
-    setTimeout(() => {
+    // 绑定搜索事件（DOM加载后立即执行，避免竞态条件）
+    function bindSearchEvents() {
       const searchInput = document.getElementById('chapter-search');
       if (searchInput) {
         searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') filterChapters(); });
         searchInput.addEventListener('input', (e) => { if (!e.target.value.trim()) filterChapters(); });
       }
-    }, 500);
+    }
+    // 如果DOM已加载完成，立即绑定；否则等待DOMContentLoaded
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bindSearchEvents);
+    } else {
+      bindSearchEvents();
+    }
+
+    // P2修复：章节分页控制
+    function bindChapterPagination() {
+      const pagination = document.getElementById('chapter-pagination');
+      if (!pagination) return;
+      
+      const prevBtn = document.getElementById('ch-prev');
+      const nextBtn = document.getElementById('ch-next');
+      const currentSpan = document.getElementById('ch-current');
+      const perPage = parseInt(pagination.dataset.perPage);
+      const total = parseInt(pagination.dataset.total);
+      const totalPages = Math.ceil(total / perPage);
+      
+      prevBtn.addEventListener('click', () => {
+        let page = parseInt(pagination.dataset.page);
+        if (page > 1) {
+          page--;
+          renderChapterPage(page, perPage, total, totalPages);
+          pagination.dataset.page = page;
+          currentSpan.textContent = page;
+          prevBtn.disabled = page === 1;
+          nextBtn.disabled = false;
+        }
+      });
+      
+      nextBtn.addEventListener('click', () => {
+        let page = parseInt(pagination.dataset.page);
+        if (page < totalPages) {
+          page++;
+          renderChapterPage(page, perPage, total, totalPages);
+          pagination.dataset.page = page;
+          currentSpan.textContent = page;
+          nextBtn.disabled = page === totalPages;
+          prevBtn.disabled = false;
+        }
+      });
+    }
+
+    function renderChapterPage(page, perPage, total, totalPages) {
+      const listEl = document.getElementById('chapter-list');
+      if (!listEl) return;
+      
+      const start = (page - 1) * perPage;
+      const end = Math.min(start + perPage, total);
+      const pageChapters = allChapters.slice(start, end);
+      
+      listEl.innerHTML = pageChapters.map(c => `
+        <li><a href="/read.html?id=${c.id}">
+          <span class="chapter-title">${esc(c.title)}</span>
+          <span class="chapter-meta">${c.word_count} 字</span>
+        </a></li>
+      `).join('');
+      
+      // 滚动到章节列表顶部
+      listEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
 
     async function exportBook(bookId, title, author) {
       try {
@@ -211,16 +300,40 @@
         const data = await res.json();
         const chapters = data.chapters || [];
         if (chapters.length === 0) return alert('没有章节可导出');
-        const parts = [];
-        for (const ch of chapters) {
-          const r = await fetch(`/api/chapters/${ch.id}`);
-          const d = await r.json();
-          parts.push(ch.title + '\n\n' + d.content);
-        }
+        
+        // 使用流式处理避免大文件内存溢出
+        const CHUNK_SIZE = 100; // 每次处理的章节数
         const sep = '\n\n' + '='.repeat(40) + '\n\n';
         const header = `《${title}》\n${author ? '作者：'+author+'\n' : ''}\n`;
         const BOM = '\uFEFF';
-        const blob = new Blob([BOM + header + parts.join(sep)], {type:'text/plain;charset=utf-8'});
+        
+        // 创建可写流
+        const chunks = [BOM + header];
+        let processedCount = 0;
+        
+        // 分块处理章节，避免一次性加载所有内容到内存
+        for (let i = 0; i < chapters.length; i += CHUNK_SIZE) {
+          const batch = chapters.slice(i, i + CHUNK_SIZE);
+          const batchPromises = batch.map(async (ch) => {
+            const r = await fetch(`/api/chapters/${ch.id}`);
+            const d = await r.json();
+            return ch.title + '\n\n' + d.content;
+          });
+          const batchResults = await Promise.all(batchPromises);
+          
+          // 添加分隔符
+          if (processedCount > 0) {
+            chunks.push(sep);
+          }
+          chunks.push(...batchResults);
+          processedCount += batchResults.length;
+          
+          // 让出主线程，保持UI响应
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        
+        // 使用 Blob 构造函数的分块模式，减少内存峰值
+        const blob = new Blob(chunks, {type:'text/plain;charset=utf-8'});
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;

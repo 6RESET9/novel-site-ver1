@@ -1,16 +1,38 @@
+// ===== P3修复：常量定义（消除魔法数字） =====
+
+// 密码哈希相关常量
+const PBKDF2_ITERATIONS = 100000;  // PBKDF2迭代次数，平衡安全性与性能
+const SALT_LENGTH = 16;            // 盐值长度（字节）
+const HASH_LENGTH = 256;           // 哈希输出长度（位）
+
+// 会话相关常量
+const SESSION_MAX_AGE_DAYS = 7;                    // 会话最大有效期（天）
+const SESSION_MAX_AGE_MS = SESSION_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;  // 毫秒
+const MAX_SESSIONS_PER_USER = 10;                  // 单用户最大活跃会话数
+
+// 认证限流常量
+const AUTH_MAX_ATTEMPTS = 5;                       // 最大失败尝试次数
+const AUTH_LOCK_DURATION_MS = 10 * 60 * 1000;      // 锁定时长（10分钟）
+
+// Token相关常量
+const TOKEN_LENGTH = 32;           // Token长度（字节）
+
+// 清理概率
+const CLEANUP_PROBABILITY = 0.1;   // 每次请求清理过期数据的概率（10%）
+
 // ===== 密码哈希（PBKDF2 + 随机盐） =====
 
 export async function hashPassword(password) {
-  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
   const key = await crypto.subtle.importKey(
     'raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']
   );
   const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, key, 256
+    { name: 'PBKDF2', salt, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' }, key, HASH_LENGTH
   );
   const hashHex = [...new Uint8Array(bits)].map(b => b.toString(16).padStart(2, '0')).join('');
   const saltHex = [...salt].map(b => b.toString(16).padStart(2, '0')).join('');
-  return `pbkdf2:100000:${saltHex}:${hashHex}`;
+  return `pbkdf2:${PBKDF2_ITERATIONS}:${saltHex}:${hashHex}`;
 }
 
 async function verifyPassword(password, stored) {
@@ -44,7 +66,7 @@ async function sha256Legacy(text) {
 }
 
 function generateToken() {
-  const bytes = new Uint8Array(32);
+  const bytes = new Uint8Array(TOKEN_LENGTH);
   crypto.getRandomValues(bytes);
   return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
 }
@@ -216,8 +238,8 @@ export async function checkAdmin(request, env) {
     return { ok: false, reason: 'expired' };
   }
 
-  // 10%概率清理过期session和限流记录
-  if (Math.random() < 0.1) {
+  // 按概率清理过期session和限流记录
+  if (Math.random() < CLEANUP_PROBABILITY) {
     await env.DB.prepare("DELETE FROM admin_sessions WHERE expires_at < datetime('now')").run().catch(() => {});
     await env.DB.prepare("DELETE FROM auth_attempts WHERE last_attempt < datetime('now', '-1 day')").run().catch(() => {});
     await env.DB.prepare("DELETE FROM site_settings WHERE key LIKE 'oauth_state:%' AND value < datetime('now')").run().catch(() => {});
@@ -278,13 +300,13 @@ export async function login(env, username, password, ip) {
   // token明文返回客户端，DB只存哈希
   const token = generateToken();
   const tokenHash = await sha256Hash(token);
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_MS).toISOString();
   await env.DB.prepare('INSERT INTO admin_sessions (token, user_id, expires_at) VALUES (?, ?, ?)')
     .bind(tokenHash, user.id, expiresAt).run();
 
-  // 限制单用户最多10个活跃session，删除最旧的
+  // 限制单用户最大活跃会话数，删除最旧的
   await env.DB.prepare(
-    "DELETE FROM admin_sessions WHERE user_id = ? AND token NOT IN (SELECT token FROM admin_sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 10)"
+    `DELETE FROM admin_sessions WHERE user_id = ? AND token NOT IN (SELECT token FROM admin_sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT ${MAX_SESSIONS_PER_USER})`
   ).bind(user.id, user.id).run().catch(() => {});
 
   await env.DB.prepare("DELETE FROM admin_sessions WHERE expires_at < datetime('now')").run().catch(() => {});
@@ -319,9 +341,7 @@ export async function changePassword(env, userId, oldPassword, newPassword) {
   return { ok: true };
 }
 
-// ===== IP限流（5次失败锁10分钟） =====
-const MAX_ATTEMPTS = 5;
-const LOCK_DURATION_MS = 10 * 60 * 1000;
+// ===== IP限流 =====
 
 async function isIpLocked(env, ip) {
   try {
@@ -347,8 +367,8 @@ async function recordFailedAttempt(env, ip) {
       return;
     }
     const n = r.fail_count + 1;
-    if (n >= MAX_ATTEMPTS) {
-      const lock = new Date(Date.now() + LOCK_DURATION_MS).toISOString();
+    if (n >= AUTH_MAX_ATTEMPTS) {
+      const lock = new Date(Date.now() + AUTH_LOCK_DURATION_MS).toISOString();
       await env.DB.prepare("UPDATE auth_attempts SET fail_count = ?, locked_until = ?, last_attempt = datetime('now') WHERE ip_hash = ?")
         .bind(n, lock, ip).run();
     } else {
@@ -413,12 +433,12 @@ export async function hmacVerify(data, signature, secret) {
 export async function createSession(env, userId) {
   const token = generateToken();
   const tokenHash = await sha256Hash(token);
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_MS).toISOString();
   await env.DB.prepare('INSERT INTO admin_sessions (token, user_id, expires_at) VALUES (?, ?, ?)')
     .bind(tokenHash, userId, expiresAt).run();
-  // 限制单用户最多10个活跃session
+  // 限制单用户最大活跃会话数
   await env.DB.prepare(
-    "DELETE FROM admin_sessions WHERE user_id = ? AND token NOT IN (SELECT token FROM admin_sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 10)"
+    `DELETE FROM admin_sessions WHERE user_id = ? AND token NOT IN (SELECT token FROM admin_sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT ${MAX_SESSIONS_PER_USER})`
   ).bind(userId, userId).run().catch(() => {});
   return { token, expiresAt };
 }
@@ -553,4 +573,72 @@ export async function ensureAnnotationSchema(env) {
   } catch (e) {
     console.error('ensureAnnotationSchema failed:', e);
   }
+}
+
+// ===== P2修复：统一错误响应格式 =====
+// 标准错误响应格式，确保API返回一致的错误结构
+//
+// 使用示例：
+// return errorResponse(400, '参数错误', 'INVALID_PARAM', { field: 'book_id' });
+// return errorResponse(404, '书籍不存在', 'NOT_FOUND');
+// return errorResponse(500, '服务器内部错误');
+
+export function errorResponse(status, message, code = null, details = null) {
+  const response = {
+    error: message,
+    success: false
+  };
+  
+  // 可选的错误码（便于前端国际化处理）
+  if (code) {
+    response.code = code;
+  }
+  
+  // 可选的详细信息（调试用，生产环境可省略）
+  if (details) {
+    response.details = details;
+  }
+  
+  return Response.json(response, { status });
+}
+
+// 常用错误响应快捷函数
+export const Errors = {
+  badRequest: (message = '请求参数错误', details = null) =>
+    errorResponse(400, message, 'BAD_REQUEST', details),
+  
+  unauthorized: (message = '未授权，请先登录') =>
+    errorResponse(401, message, 'UNAUTHORIZED'),
+  
+  forbidden: (message = '权限不足') =>
+    errorResponse(403, message, 'FORBIDDEN'),
+  
+  notFound: (message = '资源不存在') =>
+    errorResponse(404, message, 'NOT_FOUND'),
+  
+  conflict: (message = '资源冲突') =>
+    errorResponse(409, message, 'CONFLICT'),
+  
+  tooManyRequests: (message = '请求过于频繁，请稍后再试') =>
+    errorResponse(429, message, 'RATE_LIMITED'),
+  
+  internal: (message = '服务器内部错误') =>
+    errorResponse(500, message, 'INTERNAL_ERROR'),
+  
+  serviceUnavailable: (message = '服务暂时不可用') =>
+    errorResponse(503, message, 'SERVICE_UNAVAILABLE')
+};
+
+// 成功响应格式化（可选使用）
+export function successResponse(data, meta = null) {
+  const response = {
+    success: true,
+    ...data
+  };
+  
+  if (meta) {
+    response.meta = meta;
+  }
+  
+  return Response.json(response);
 }

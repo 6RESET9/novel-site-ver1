@@ -2,9 +2,14 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>阅读 - 我的书架</title>
   <meta name="description" content="">
+  
+  <!-- P3修复：DNS预解析和预连接 -->
+  <link rel="preconnect" href="https://github.com" crossorigin>
+  <link rel="dns-prefetch" href="https://github.com">
+  
   <link rel="stylesheet" href="/style.css">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#d4a574">
@@ -448,10 +453,14 @@
       content.style.columnGap = colW + 'px';
       // 单次强制 reflow 获取 scrollWidth
       const scrollW = content.scrollWidth;
+      // 优化页码计算：使用更精确的公式
+      // 每页宽度 = columnWidth + columnGap = colW * 2
+      const pageWidth = colW * 2;
       if (scrollW <= colW) {
         pagerState.totalPages = 1;
       } else {
-        pagerState.totalPages = Math.round((scrollW / colW + 1) / 2);
+        // 使用 ceil 向上取整，确保最后一页也能显示
+        pagerState.totalPages = Math.ceil(scrollW / pageWidth);
       }
       pagerState.totalPages = Math.max(1, pagerState.totalPages);
       // 恢复到相近的页码
@@ -579,7 +588,12 @@
     });
 
     // ===== 进度条 + 滚动位置记忆 =====
+    // P2修复：优化进度保存频率，使用节流而非防抖
+    // 节流确保定期保存，防抖可能导致长时间不保存
     let scrollSaveTimer = null;
+    let lastSaveTime = 0;
+    const SCROLL_SAVE_INTERVAL = 2000; // 节流间隔：2秒保存一次，平衡性能和体验
+    
     window.addEventListener('scroll', () => {
       if (settings.readingMode === 'pager') return;
       const h = document.documentElement.scrollHeight - window.innerHeight;
@@ -587,9 +601,20 @@
       document.getElementById('progress-bar').style.width = pct + '%';
       document.getElementById('back-top').classList.toggle('visible', window.scrollY > 400);
 
-      // 节流保存滚动位置
-      if (scrollSaveTimer) clearTimeout(scrollSaveTimer);
-      scrollSaveTimer = setTimeout(saveScrollPosition, 1000);
+      // 节流保存滚动位置：确保每2秒最多保存一次
+      const now = Date.now();
+      if (now - lastSaveTime >= SCROLL_SAVE_INTERVAL) {
+        // 立即保存并更新时间戳
+        saveScrollPosition();
+        lastSaveTime = now;
+      } else {
+        // 在节流间隔内，设置定时器确保最终会保存
+        if (scrollSaveTimer) clearTimeout(scrollSaveTimer);
+        scrollSaveTimer = setTimeout(() => {
+          saveScrollPosition();
+          lastSaveTime = Date.now();
+        }, SCROLL_SAVE_INTERVAL - (now - lastSaveTime));
+      }
     });
 
     function saveScrollPosition() {
@@ -939,12 +964,27 @@
       saveReadingStats(s);
     }
     // 每30秒累加阅读时长
-    setInterval(() => {
+    // 保存定时器引用，以便页面离开时清理
+    let readingStatsTimer = null;
+    readingStatsTimer = setInterval(() => {
       if (document.hidden) return;
       const s = getReadingStats();
       s.totalSeconds = (s.totalSeconds || 0) + 30;
       saveReadingStats(s);
     }, 30000);
+
+    // 页面离开时清理定时器，防止内存泄漏
+    function cleanupReadingStats() {
+      if (readingStatsTimer) {
+        clearInterval(readingStatsTimer);
+        readingStatsTimer = null;
+      }
+    }
+
+    // 使用 pagehide 事件（比 beforeunload 更可靠）
+    window.addEventListener('pagehide', cleanupReadingStats);
+    // 同时监听 beforeunload 作为后备
+    window.addEventListener('beforeunload', cleanupReadingStats);
 
     // ===== 沉浸模式 =====
     const immersiveHint = document.getElementById('immersive-hint');
@@ -1011,8 +1051,50 @@
     // ===== 批注系统 =====
     let annoState = {
       paraIdx: null, sentIdx: null, sentText: '', sentHash: '',
-      visibility: 'private', editing: false
+      visibility: 'private', editing: false,
+      // 保存选区状态，防止点击按钮时选区丢失
+      savedRange: null,
+      savedSelectionText: ''
     };
+
+    // 保存选区状态（在选区变化时调用）
+    function saveSelectionState(sel) {
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+        annoState.savedRange = null;
+        annoState.savedSelectionText = '';
+        return;
+      }
+      try {
+        const range = sel.getRangeAt(0);
+        // 克隆 Range 以防止选区清除后数据丢失
+        annoState.savedRange = range.cloneRange();
+        annoState.savedSelectionText = sel.toString();
+      } catch (e) {
+        console.warn('[anno] saveSelectionState error:', e);
+        annoState.savedRange = null;
+        annoState.savedSelectionText = '';
+      }
+    }
+
+    // 恢复选区状态
+    function restoreSelectionState() {
+      if (!annoState.savedRange) return false;
+      try {
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(annoState.savedRange);
+        return true;
+      } catch (e) {
+        console.warn('[anno] restoreSelectionState error:', e);
+        return false;
+      }
+    }
+
+    // 清除保存的选区状态
+    function clearSavedSelectionState() {
+      annoState.savedRange = null;
+      annoState.savedSelectionText = '';
+    }
 
     async function initAnnotations() {
       await fetchCurrentUser();
@@ -1427,9 +1509,10 @@
         }
       });
 
-      // 滚动时关闭浮动按钮
+      // 滚动时关闭浮动按钮（但保留保存的选区状态，以便用户仍可创建批注）
       window.addEventListener('scroll', () => {
         document.getElementById('anno-float-btn').classList.remove('visible');
+        // 注意：不清除 savedRange，因为用户可能滚动后仍想创建批注
       }, { passive: true });
     }
 
@@ -1451,14 +1534,21 @@
     function showFloatBtnForSelection(sel) {
       if (!sel || sel.isCollapsed || annoState.editing) {
         document.getElementById('anno-float-btn').classList.remove('visible');
+        clearSavedSelectionState();
         return;
       }
       const anchorEl = sel.anchorNode?.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode;
       const readerContent = document.querySelector('.reader-content');
-      if (!readerContent || !readerContent.contains(anchorEl)) return;
+      if (!readerContent || !readerContent.contains(anchorEl)) {
+        clearSavedSelectionState();
+        return;
+      }
 
       const p = anchorEl?.closest('p[data-para-idx]');
-      if (!p) return;
+      if (!p) {
+        clearSavedSelectionState();
+        return;
+      }
 
       const paraIdx = parseInt(p.dataset.paraIdx);
       const paraText = p.textContent;
@@ -1470,7 +1560,13 @@
       const selEnd = selStart + sel.toString().length;
 
       const snapped = snapToSentence(paraText, selStart, selEnd);
-      if (!snapped) return;
+      if (!snapped) {
+        clearSavedSelectionState();
+        return;
+      }
+
+      // 保存选区状态，防止点击按钮时选区丢失
+      saveSelectionState(sel);
 
       annoState.paraIdx = paraIdx;
       annoState.sentIdx = snapped.sentIdx;
@@ -1490,21 +1586,55 @@
     async function openAnnotationEditor() {
       document.getElementById('anno-float-btn').classList.remove('visible');
 
+      // 验证选区状态是否有效
       if (!annoState.sentText) {
-        console.warn('[anno] sentText empty, trying to recover from selection');
-        // 尝试从当前选区恢复
-        const sel = window.getSelection();
-        if (sel && !sel.isCollapsed) {
-          showFloatBtnForSelection(sel);
-          if (!annoState.sentText) {
-            alert('未能识别选中的句子，请重新选择');
+        console.warn('[anno] sentText empty, trying to recover from saved selection');
+        
+        // 首先尝试从保存的选区恢复
+        if (annoState.savedRange && annoState.savedSelectionText) {
+          console.log('[anno] attempting to restore from saved range');
+          const restored = restoreSelectionState();
+          if (restored) {
+            const sel = window.getSelection();
+            if (sel && !sel.isCollapsed) {
+              showFloatBtnForSelection(sel);
+              if (!annoState.sentText) {
+                alert('未能识别选中的句子，请重新选择');
+                clearSavedSelectionState();
+                return;
+              }
+              // 恢复成功，继续
+            } else {
+              alert('选区已失效，请重新选择要批注的文字');
+              clearSavedSelectionState();
+              return;
+            }
+          } else {
+            alert('选区已失效，请重新选择要批注的文字');
+            clearSavedSelectionState();
             return;
           }
-          // 恢复成功，继续
         } else {
-          alert('请先选中一段文字');
-          return;
+          // 尝试从当前选区恢复
+          const sel = window.getSelection();
+          if (sel && !sel.isCollapsed) {
+            showFloatBtnForSelection(sel);
+            if (!annoState.sentText) {
+              alert('未能识别选中的句子，请重新选择');
+              return;
+            }
+            // 恢复成功，继续
+          } else {
+            alert('请先选中一段文字');
+            return;
+          }
         }
+      }
+
+      // 再次验证必要字段
+      if (!validateAnnotationState()) {
+        alert('选区信息不完整，请重新选择要批注的文字');
+        return;
       }
 
       try {
@@ -1546,9 +1676,23 @@
       }
     }
 
+    // 验证批注状态是否有效
+    function validateAnnotationState() {
+      return (
+        annoState.paraIdx !== null &&
+        annoState.paraIdx !== undefined &&
+        annoState.sentIdx !== null &&
+        annoState.sentIdx !== undefined &&
+        annoState.sentText &&
+        annoState.sentText.trim().length > 0
+      );
+    }
+
     function closeAnnotationEditor() {
       annoState.editing = false;
       document.getElementById('anno-editor').style.display = 'none';
+      // 关闭编辑器时清除保存的选区状态
+      clearSavedSelectionState();
     }
 
     function toggleVisibility() {
@@ -1566,8 +1710,32 @@
 
     async function submitAnnotation() {
       const content = document.getElementById('anno-input').value.trim();
-      if (!content) return;
-      if (content.length > 500) { alert('批注内容不能超过500字'); return; }
+      if (!content) {
+        alert('请输入批注内容');
+        return;
+      }
+      if (content.length > 500) {
+        alert('批注内容不能超过500字');
+        return;
+      }
+
+      // 验证所有必需字段
+      if (!currentChapterId) {
+        alert('章节信息缺失，请刷新页面后重试');
+        return;
+      }
+      if (!currentBookId) {
+        alert('书籍信息缺失，请刷新页面后重试');
+        return;
+      }
+      if (!validateAnnotationState()) {
+        alert('选区信息不完整，请关闭编辑器后重新选择要批注的文字');
+        return;
+      }
+      if (!annoState.sentHash) {
+        alert('句子哈希计算失败，请重试');
+        return;
+      }
 
       const btn = document.getElementById('anno-submit');
       btn.disabled = true;
@@ -1587,12 +1755,14 @@
 
         if (res.ok) {
           closeAnnotationEditor();
+          clearSavedSelectionState();
           await refreshAnnotations();
         } else {
           const err = await res.json().catch(() => ({}));
           alert(err.error || '发表失败');
         }
       } catch (e) {
+        console.error('[anno] submitAnnotation error:', e);
         alert('网络错误');
       } finally {
         btn.disabled = false;

@@ -103,7 +103,14 @@ export async function onRequestPost(context) {
   }
 }
 
-// GET /api/annotations?chapterId=X&paraIdx=Y&sentIdx=Z&sort=latest|hot
+// 定义允许的排序方式白名单
+const VALID_SORT_OPTIONS = {
+  'hot': 'like_count DESC, a.created_at DESC',
+  'latest': 'a.created_at DESC',
+  'oldest': 'a.created_at ASC'
+};
+
+// GET /api/annotations?chapterId=X&paraIdx=Y&sentIdx=Z&sort=latest|hot|oldest
 export async function onRequestGet(context) {
   const { request, env } = context;
   const url = new URL(request.url);
@@ -126,7 +133,8 @@ export async function onRequestGet(context) {
   const auth = await checkAdmin(request, env);
   if (auth.ok) userId = auth.userId;
 
-  const orderBy = sort === 'hot' ? 'like_count DESC, a.created_at DESC' : 'a.created_at DESC';
+  // 使用白名单验证排序字段，防止SQL注入
+  const orderBy = VALID_SORT_OPTIONS[sort] || VALID_SORT_OPTIONS['latest'];
 
   const rows = await env.DB.prepare(`
     SELECT a.id, a.content, a.visibility, a.created_at, a.user_id,
