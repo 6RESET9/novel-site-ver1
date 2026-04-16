@@ -1,6 +1,18 @@
-// Service Worker for 我的书架 PWA
-const CACHE_NAME = 'novel-site-v4';
-const APP_SHELL = ['/', '/index', '/book', '/read', '/style.css', '/manifest.json', '/icon.svg'];
+// Service Worker for 小说站 PWA
+const CACHE_NAME = 'novel-site-v5';
+const APP_SHELL = ['/style.css', '/manifest.json', '/icon.svg'];
+const HTML_PATHS = new Set(['/', '/index', '/index.html', '/book', '/book.html', '/read', '/read.html']);
+
+function isHtmlRequest(request, url) {
+  const accept = request.headers.get('accept') || '';
+  return request.mode === 'navigate' || accept.includes('text/html') || HTML_PATHS.has(url.pathname);
+}
+
+function putInCache(request, response) {
+  if (!response || !response.ok) return;
+  const clone = response.clone();
+  caches.open(CACHE_NAME).then(cache => cache.put(request, clone)).catch(() => {});
+}
 
 // Install: cache app shell
 self.addEventListener('install', (e) => {
@@ -28,16 +40,24 @@ self.addEventListener('fetch', (e) => {
   // Admin API: always network (no caching)
   if (url.pathname.startsWith('/api/admin') || url.pathname.startsWith('/api/auth')) return;
 
+  // HTML: Network First，避免部署后页面长期停留在旧缓存
+  if (isHtmlRequest(e.request, url)) {
+    e.respondWith(
+      fetch(e.request).then(res => {
+        putInCache(e.request, res);
+        return res;
+      }).catch(() => caches.match(e.request).then(cached => cached || caches.match('/')))
+    );
+    return;
+  }
+
   // Cover images: Cache First
   if (url.pathname.startsWith('/api/covers/')) {
     e.respondWith(
       caches.match(e.request).then(cached => {
         if (cached) return cached;
         return fetch(e.request).then(res => {
-          if (res.ok) {
-            const clone = res.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
-          }
+          putInCache(e.request, res);
           return res;
         });
       }).catch(() => caches.match(e.request))
@@ -49,27 +69,21 @@ self.addEventListener('fetch', (e) => {
   if (url.pathname.startsWith('/api/')) {
     e.respondWith(
       fetch(e.request).then(res => {
-        if (res.ok) {
-          const clone = res.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
-        }
+        putInCache(e.request, res);
         return res;
       }).catch(() => caches.match(e.request))
     );
     return;
   }
 
-  // App shell & static: Cache First
+  // Static assets: Stale-While-Revalidate
   e.respondWith(
     caches.match(e.request).then(cached => {
-      if (cached) return cached;
-      return fetch(e.request).then(res => {
-        if (res.ok && (url.pathname.endsWith('.css') || url.pathname.endsWith('.js') || url.pathname === '/' || url.pathname === '/index' || url.pathname === '/book' || url.pathname === '/read')) {
-          const clone = res.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
-        }
+      const network = fetch(e.request).then(res => {
+        putInCache(e.request, res);
         return res;
       });
+      return cached || network;
     }).catch(() => caches.match('/'))
   );
 });
