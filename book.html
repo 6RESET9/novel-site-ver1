@@ -163,13 +163,19 @@
       }
     }
     function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+    function escWithLineBreaks(s) {
+      return esc(s).replace(/\r\n|\r|\n/g, '<br>');
+    }
     function cleanDesc(s) {
       if (!s) return '';
-      if (!/<[a-z][\s\S]*>/i.test(s)) return esc(s);
+      if (!/<[a-z][\s\S]*>/i.test(s)) return escWithLineBreaks(s.trim());
       const doc = new DOMParser().parseFromString('<body>' + s + '</body>', 'text/html').body;
       const parts = [];
-      doc.querySelectorAll('p, div, li').forEach(b => { const t = b.textContent.trim(); if (t) parts.push(esc(t)); });
-      return parts.length > 0 ? parts.join('<br>') : esc(doc.textContent.trim());
+      doc.querySelectorAll('p, div, li').forEach(b => {
+        const t = b.textContent.trim();
+        if (t) parts.push(escWithLineBreaks(t));
+      });
+      return parts.length > 0 ? parts.join('<br>') : escWithLineBreaks(doc.textContent.trim());
     }
 
     function getBookmarks(bookId) {

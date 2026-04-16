@@ -298,7 +298,7 @@ textarea:focus-visible,
 }
 .book-header h2 { font-size: 24px; margin-bottom: 8px; }
 .book-header .author { color: var(--text-light); font-size: 14px; margin-bottom: 12px; }
-.book-header .desc { color: var(--text-light); font-size: 15px; line-height: 1.6; }
+.book-header .desc { color: var(--text-light); font-size: 15px; line-height: 1.6; white-space: pre-line; }
 
 .chapter-list {
   list-style: none;
