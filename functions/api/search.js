@@ -76,23 +76,34 @@ export async function onRequestGet(context) {
     });
   }
 
-  // P2修复：书籍搜索支持分页，先获取总数
+  // 书籍搜索支持：标题、作者、标签、上传人
   const countResult = await env.DB.prepare(
-    `SELECT COUNT(*) as total FROM books b
-     WHERE b.title LIKE ? OR b.author LIKE ?`
-  ).bind(like, like).first();
+    `SELECT COUNT(DISTINCT b.id) as total
+     FROM books b
+     LEFT JOIN admin_users u ON b.created_by = u.id
+     LEFT JOIN book_tags bt ON bt.book_id = b.id
+     LEFT JOIN tags t ON t.id = bt.tag_id
+     WHERE (b.status IS NULL OR b.status = 'normal')
+       AND (b.title LIKE ? OR b.author LIKE ? OR u.username LIKE ? OR t.name LIKE ?)`
+  ).bind(like, like, like, like).first();
   const total = countResult?.total || 0;
   const totalPages = Math.ceil(total / limit);
 
-  // 搜索书籍（书名 + 作者）
+  // 搜索书籍（标题 + 作者 + 标签 + 上传人）
   const { results } = await env.DB.prepare(
     `SELECT b.id, b.title, b.author, b.description, b.cover_key, b.created_at, b.updated_at,
+      u.username as uploader,
       (SELECT COUNT(*) FROM chapters WHERE book_id = b.id) as chapter_count,
       (SELECT COALESCE(SUM(word_count), 0) FROM chapters WHERE book_id = b.id) as total_words
      FROM books b
-     WHERE b.title LIKE ? OR b.author LIKE ?
+     LEFT JOIN admin_users u ON b.created_by = u.id
+     LEFT JOIN book_tags bt ON bt.book_id = b.id
+     LEFT JOIN tags t ON t.id = bt.tag_id
+     WHERE (b.status IS NULL OR b.status = 'normal')
+       AND (b.title LIKE ? OR b.author LIKE ? OR u.username LIKE ? OR t.name LIKE ?)
+     GROUP BY b.id
      ORDER BY b.updated_at DESC LIMIT ? OFFSET ?`
-  ).bind(like, like, limit, offset).all();
+  ).bind(like, like, like, like, limit, offset).all();
 
   return Response.json({
     books: results,

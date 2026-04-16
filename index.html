@@ -8,10 +8,6 @@
   <meta property="og:title" content="我的书架">
   <meta property="og:description" content="私人小说站，零成本搭建在 Cloudflare 上">
   
-  <!-- P3修复：DNS预解析和预连接 - 优化资源加载性能 -->
-  <link rel="preconnect" href="https://github.com" crossorigin>
-  <link rel="dns-prefetch" href="https://github.com">
-  
   <link rel="stylesheet" href="/style.css">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#d4a574">
@@ -20,8 +16,7 @@
   <div class="navbar">
     <h1><a href="/">📚 我的书架</a></h1>
     <nav>
-      <a href="https://github.com/xingzihai/novel-site" target="_blank" rel="noopener" title="GitHub">GitHub</a>
-      <a href="/admin.html" id="nav-admin">管理</a>
+      <span id="nav-user"></span>
       <button class="theme-toggle" onclick="toggleTheme()" title="切换主题">🌙</button>
     </nav>
   </div>
@@ -30,7 +25,7 @@
     <div id="reading-stats"></div>
     <div id="tag-filter"></div>
     <div class="search-bar">
-      <input type="text" id="search-input" placeholder="搜索书名或作者..." autocomplete="off">
+      <input type="text" id="search-input" placeholder="搜索标题 / 作者 / 标签 / 上传人..." autocomplete="off">
       <button onclick="doSearch()">搜索</button>
     </div>
     <div id="search-results" class="search-results" style="display:none"></div>
@@ -57,9 +52,9 @@
       btn.textContent = THEME_ICONS[t] || '🌙';
     }
 
-    // 用户状态：登录后替换"管理"为角色+用户名
+    // 用户状态：仅显示当前用户与退出，不提供后台入口
     (async function renderUserStatus() {
-      const adminLink = document.getElementById('nav-admin');
+      const navUser = document.getElementById('nav-user');
       try {
         const res = await fetch('/api/me', { credentials: 'same-origin' });
         if (res.ok) {
@@ -74,17 +69,21 @@
           const badge = document.createElement('span');
           badge.className = 'role-badge ' + r.cls;
           badge.textContent = r.label;
-          adminLink.textContent = '';
-          adminLink.appendChild(badge);
-          adminLink.appendChild(document.createTextNode(' ' + (user.username || '') + ' '));
+          navUser.textContent = '';
+          navUser.appendChild(badge);
+          navUser.appendChild(document.createTextNode(' ' + (user.username || '') + ' '));
           const logoutLink = document.createElement('a');
           logoutLink.href = '#';
           logoutLink.style.cssText = 'font-size:12px;color:#e74c3c;margin-left:6px';
           logoutLink.textContent = '退出';
           logoutLink.onclick = function() { doLogout(); return false; };
-          adminLink.appendChild(logoutLink);
+          navUser.appendChild(logoutLink);
+        } else {
+          navUser.textContent = '';
         }
-      } catch {}
+      } catch {
+        navUser.textContent = '';
+      }
     })();
 
     async function doLogout() {
@@ -160,17 +159,22 @@
         contentEl.style.display = '';
         return;
       }
-      const matched = allBooks.filter(b =>
-        (b.title || '').toLowerCase().includes(q) ||
-        (b.author || '').toLowerCase().includes(q)
-      );
+      const matched = allBooks.filter(b => {
+        const tagNames = (b.tags || []).map(t => t.name).join(' ');
+        return (
+          (b.title || '').toLowerCase().includes(q) ||
+          (b.author || '').toLowerCase().includes(q) ||
+          tagNames.toLowerCase().includes(q) ||
+          (b.uploader || '').toLowerCase().includes(q)
+        );
+      });
       if (matched.length === 0) {
         resultsEl.innerHTML = '<div style="padding:16px;color:var(--text-light);text-align:center">没有找到匹配的书籍</div>';
       } else {
         resultsEl.innerHTML = matched.map(b => `
           <a class="result-item" href="/book.html?id=${b.id}">
             <div class="result-title">${highlightMatch(esc(b.title), q)}</div>
-            <div class="result-book">${b.author ? highlightMatch(esc(b.author), q) + ' · ' : ''}${b.chapter_count}章 · ${formatWords(b.total_words)}</div>
+            <div class="result-book">${formatSearchMeta(b, q)}</div>
           </a>
         `).join('');
       }
@@ -181,6 +185,15 @@
       if (!q) return text;
       const re = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`, 'gi');
       return text.replace(re, '<mark>$1</mark>');
+    }
+    function formatSearchMeta(book, q) {
+      const parts = [];
+      if (book.author) parts.push(highlightMatch(esc(book.author), q));
+      if (book.uploader) parts.push('上传：' + highlightMatch(esc(book.uploader), q));
+      const tagNames = (book.tags || []).map(t => t.name).join(' / ');
+      if (tagNames) parts.push('标签：' + highlightMatch(esc(tagNames), q));
+      parts.push(`${book.chapter_count}章 · ${formatWords(book.total_words)}`);
+      return parts.join(' · ');
     }
     // 搜索防抖定时器
     let searchDebounceTimer = null;
@@ -275,7 +288,7 @@
       if (books.length === 0) {
         if (allBooks.length === 0) {
           el.className = '';
-          el.innerHTML = '<div class="empty"><p>📖 书架空空如也</p><p>去<a href="/admin.html">管理后台</a>添加第一本书吧</p></div>';
+          el.innerHTML = '<div class="empty"><p>📖 书架空空如也</p><p>请前往 /admin.html 添加第一本书</p></div>';
         } else {
           el.className = '';
           el.innerHTML = '<div class="empty"><p>没有匹配的书籍</p></div>';

@@ -888,6 +888,8 @@
       URL.revokeObjectURL(url);
     }
     async function exportBook(bookId) {
+      showMsg('manage-msg', '全文 TXT 导出已关闭', 'error');
+      return;
       showMsg('manage-msg','正在导出...','');
       try {
         const res=await fetch(`/api/books/${bookId}`);
@@ -1149,8 +1151,7 @@
         document.getElementById('batch-bar').style.display='flex';
         document.getElementById('select-all').checked=false;
         updateSelectedCount();
-        exportArea.innerHTML=`<a href="#" id="export-book-link" style="font-size:13px;color:var(--text-light);text-decoration:none;border-bottom:1px dashed var(--text-light)">导出全书 TXT</a>`;
-        document.getElementById('export-book-link').addEventListener('click',function(e){e.preventDefault();exportBook(bookId);});
+        exportArea.innerHTML = '';
       } catch(e) { el.innerHTML=`<li class="msg msg-error">${esc(e.message)}</li>`; }
     }
 
@@ -1418,7 +1419,7 @@
         showMsg('admin-user-msg', data.message, 'success');
         document.getElementById('new-admin-user').value = '';
         document.getElementById('new-admin-pass').value = '';
-        document.getElementById('new-admin-super').checked = false;
+        document.getElementById('new-admin-role').value = 'demo';
         document.getElementById('new-admin-pwd-lock').checked = false;
         loadAdminUsers();
       } catch(e) { showMsg('admin-user-msg', e.message, 'error'); }
@@ -1934,14 +1935,17 @@
     function renderTagSelector(containerId, selectedIds, onToggle) {
       const container = document.getElementById(containerId);
       if (!container) return;
+      const parent = container.closest('.form-group');
+      const canCreateTag = currentRole !== 'demo' && containerId === 'edit-book-tags';
       if (_allTags.length === 0) {
-        container.innerHTML = '';
-        // 隐藏父级 form-group
-        const parent = container.closest('.form-group');
-        if (parent) parent.style.display = 'none';
+        if (parent) parent.style.display = canCreateTag ? '' : 'none';
+        if (canCreateTag) {
+          container.innerHTML = '<div style="font-size:12px;color:var(--text-light)">暂无标签，请先创建</div>';
+        } else {
+          container.innerHTML = '';
+        }
         return;
       }
-      const parent = container.closest('.form-group');
       if (parent) parent.style.display = '';
       container.innerHTML = _allTags.map(t => {
         const checked = selectedIds.includes(t.id);

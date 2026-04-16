@@ -6,10 +6,6 @@
   <title>作品详情</title>
   <meta name="description" content="">
   
-  <!-- P3修复：DNS预解析和预连接 -->
-  <link rel="preconnect" href="https://github.com" crossorigin>
-  <link rel="dns-prefetch" href="https://github.com">
-  
   <link rel="stylesheet" href="/style.css">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#d4a574">
@@ -18,8 +14,6 @@
   <div class="navbar">
     <h1><a href="/">📚 我的书架</a></h1>
     <nav>
-      <a href="https://github.com/xingzihai/novel-site" target="_blank" rel="noopener" title="GitHub">GitHub</a>
-      <a href="/admin.html">管理</a>
       <button class="theme-toggle" onclick="toggleTheme()" title="切换主题">🌙</button>
     </nav>
   </div>
@@ -144,8 +138,6 @@
               <button id="ch-next">下一页</button>
             </div>`;
           }
-          
-          html += `<div style="margin-top:20px;text-align:center"><a href="#" id="export-link" style="font-size:13px;color:var(--text-light);text-decoration:none;border-bottom:1px dashed var(--text-light);padding-bottom:1px">导出全书 TXT</a></div>`;
         }
 
         // 书签列表
@@ -164,12 +156,6 @@
 
         el.innerHTML = html;
 
-        // 安全绑定导出事件（避免onclick中拼接字符串）
-        const exportLink = document.getElementById('export-link');
-        if (exportLink) {
-          exportLink.addEventListener('click', (e) => { e.preventDefault(); exportBook(b.id, b.title, b.author); });
-        }
-        
         // P2修复：绑定章节分页事件
         bindChapterPagination();
       } catch (e) {
@@ -295,6 +281,8 @@
     }
 
     async function exportBook(bookId, title, author) {
+      alert('全文 TXT 导出已关闭');
+      return;
       try {
         const res = await fetch(`/api/books/${bookId}`);
         const data = await res.json();

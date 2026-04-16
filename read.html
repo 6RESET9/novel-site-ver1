@@ -6,10 +6,6 @@
   <title>阅读 - 我的书架</title>
   <meta name="description" content="">
   
-  <!-- P3修复：DNS预解析和预连接 -->
-  <link rel="preconnect" href="https://github.com" crossorigin>
-  <link rel="dns-prefetch" href="https://github.com">
-  
   <link rel="stylesheet" href="/style.css">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#d4a574">
@@ -157,12 +153,12 @@
             'demo': { label: '用户', cls: 'demo' }
           };
           const r = roleMap[currentUser.role] || { label: '用户', cls: 'demo' };
-          navUser.innerHTML = `<a href="/admin.html"><span class="role-badge ${r.cls}">${r.label}</span> ${esc(currentUser.username || '')}</a> <a href="#" onclick="doLogout();return false" style="font-size:12px;color:#e74c3c;margin-left:6px">退出</a>`;
+          navUser.innerHTML = `<span class="role-badge ${r.cls}">${r.label}</span> ${esc(currentUser.username || '')} <a href="#" onclick="doLogout();return false" style="font-size:12px;color:#e74c3c;margin-left:6px">退出</a>`;
         } else {
-          navUser.innerHTML = '<a href="/admin.html">管理</a>';
+          navUser.innerHTML = '';
         }
       } catch {
-        navUser.innerHTML = '<a href="/admin.html">管理</a>';
+        navUser.innerHTML = '';
       }
     }
 
@@ -765,39 +761,12 @@
         nav.innerHTML = `
           ${prevUrl ? `<a href="${prevUrl}">← ${esc(data.prevChapter.title)}</a>` : '<span class="disabled">已是第一章</span>'}
           <a href="/book.html?id=${c.book_id}">目录</a>
-          <a href="#" id="export-btn" style="font-size:13px">导出TXT</a>
-          <a href="#" id="download-book-btn" style="font-size:13px">📥 缓存全书</a>
           ${nextUrl ? `<a href="${nextUrl}">${esc(data.nextChapter.title)} →</a>` : '<span class="disabled">已是最新章</span>'}
         `;
 
         el.innerHTML = `<h2>${esc(c.title)}</h2>`;
         el.appendChild(contentDiv);
         el.appendChild(nav);
-
-        // 导出按钮事件
-        document.getElementById('export-btn').addEventListener('click', (e) => { e.preventDefault(); exportThis(); });
-
-        // 缓存全书按钮
-        document.getElementById('download-book-btn').addEventListener('click', async (e) => {
-          e.preventDefault();
-          const btn = e.target;
-          try {
-            btn.textContent = '📥 获取目录...';
-            const bRes = await fetch(`/api/books/${c.book_id}`);
-            const bData = await bRes.json();
-            const chs = bData.chapters || [];
-            if (chs.length === 0) { btn.textContent = '📥 无章节'; return; }
-            let done = 0;
-            for (const ch of chs) {
-              await fetch(`/api/chapters/${ch.id}`);
-              done++;
-              btn.textContent = `📥 ${done}/${chs.length}`;
-            }
-            btn.textContent = '✅ 缓存完成';
-          } catch (err) {
-            btn.textContent = '❌ 缓存失败';
-          }
-        });
 
         // 底部工具栏按钮
         document.getElementById('bar-prev').onclick = () => { if (prevUrl) location.href = prevUrl; };
@@ -888,18 +857,6 @@
       const d = document.createElement('div');
       d.textContent = s || '';
       return d.innerHTML;
-    }
-
-    function exportThis() {
-      if (!window._chapterData) return;
-      const BOM = '\uFEFF';
-      const blob = new Blob([BOM + window._chapterData.content], {type:'text/plain;charset=utf-8'});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = (window._chapterData.title + '.txt').replace(/[<>:"/\\|?*]/g, '_');
-      a.click();
-      URL.revokeObjectURL(url);
     }
 
     // ===== 书签功能 =====

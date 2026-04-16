@@ -1,11 +1,11 @@
-name = "novel-site"
+name = "novel-site-ver1"
 pages_build_output_dir = "."
 compatibility_date = "2026-02-01"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "novel-db"
-database_id = "807ef966-4df8-4eca-bcad-95d186775be0"
+database_id = "cbf11cb4-20b0-4744-b209-4dce704eff1e"
 
 [[r2_buckets]]
 binding = "R2"
