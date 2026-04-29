@@ -8,7 +8,7 @@
   <meta property="og:title" content="我的书架">
   <meta property="og:description" content="私人小说站，零成本搭建在 Cloudflare 上">
   
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/style.css?v=20260430">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#d4a574">
 </head>
@@ -31,6 +31,7 @@
     <div id="search-results" class="search-results" style="display:none"></div>
     <div id="content" class="loading">加载中...</div>
   </div>
+  <script src="/tag-search.js?v=20260430"></script>
   <script>
     // 主题
     const THEMES = ['light','dark','green','sepia','blue'];
@@ -152,7 +153,8 @@
     const MAX_CARD_TAGS = 4;
 
     function doSearch() {
-      const q = document.getElementById('search-input').value.trim().toLowerCase();
+      const rawQuery = document.getElementById('search-input').value;
+      const q = window.TagSearch ? window.TagSearch.normalizeText(rawQuery) : rawQuery.trim().toLowerCase();
       const resultsEl = document.getElementById('search-results');
       const contentEl = document.getElementById('content');
       if (!q) {
@@ -161,14 +163,7 @@
         return;
       }
       const matched = allBooks.filter(b => {
-        const tagNames = (b.tags || []).map(t => t.name).join(' ');
-        return (
-          (b.title || '').toLowerCase().includes(q) ||
-          (b.original_title || '').toLowerCase().includes(q) ||
-          (b.author || '').toLowerCase().includes(q) ||
-          tagNames.toLowerCase().includes(q) ||
-          (b.uploader || '').toLowerCase().includes(q)
-        );
+        return buildBookSearchText(b).includes(q);
       });
       if (matched.length === 0) {
         resultsEl.innerHTML = '<div style="padding:16px;color:var(--text-light);text-align:center">没有找到匹配的书籍</div>';
@@ -204,6 +199,18 @@
       if (tagNames) parts.push('标签：' + highlightMatch(esc(tagNames), q));
       parts.push(`${book.chapter_count}章 · ${formatWords(book.total_words)}`);
       return parts.join(' · ');
+    }
+    function buildBookSearchText(book) {
+      const tagNames = (book.tags || []).map(t => t.name || '').join(' ');
+      const tagIndex = window.TagSearch ? window.TagSearch.buildIndex(tagNames) : tagNames.toLowerCase();
+      return [
+        book.title,
+        book.original_title,
+        book.author,
+        book.uploader,
+        tagNames,
+        tagIndex
+      ].map(v => String(v || '').toLowerCase()).join(' ');
     }
     // 搜索防抖定时器
     let searchDebounceTimer = null;
@@ -345,9 +352,12 @@ function renderTagFilter() {
         if (!b.title && !b.original_title) titleHtml = `<h3>?</h3>`;
         // ridi评分
         const ratingHtml = b.ridi_rating != null ? `<div class="card-rating">⭐ ${b.ridi_rating}</div>` : '';
+        const color = coverColor(displayTitle);
+        const firstChar = (displayTitle || '?')[0];
         if (b.cover_key) {
           return `<a class="book-card-cover" href="/book.html?id=${b.id}">
-            <img class="cover-img" src="/api/covers/${b.id}" alt="${esc(displayTitle)}" loading="lazy">
+            <img class="cover-img" src="/api/covers/${b.id}" alt="${esc(displayTitle)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+            <div class="cover-placeholder cover-fallback" style="display:none;background:${color}">${esc(firstChar)}</div>
             <div class="card-body">
               ${titleHtml}
               <div class="meta">${b.author ? esc(b.author) + ' · ' : ''}${b.chapter_count}章</div>
@@ -356,8 +366,6 @@ function renderTagFilter() {
             </div>
           </a>`;
         } else {
-          const color = coverColor(displayTitle);
-          const firstChar = (displayTitle || '?')[0];
           return `<a class="book-card-cover" href="/book.html?id=${b.id}">
             <div class="cover-placeholder" style="background:${color}">${esc(firstChar)}</div>
             <div class="card-body">

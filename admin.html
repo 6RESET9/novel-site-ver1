@@ -9,7 +9,8 @@
   <link rel="preconnect" href="https://github.com" crossorigin>
   <link rel="dns-prefetch" href="https://github.com">
   
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/style.css?v=20260430">
+  <script src="/tag-search.js?v=20260430"></script>
   <script src="/jszip.min.js"></script>
 </head>
 <body>
@@ -2299,12 +2300,14 @@
         return;
       }
       if (parent) parent.style.display = '';
-      const query = (_tagSelectorQueries[containerId] || '').trim().toLowerCase();
+      const query = window.TagSearch
+        ? window.TagSearch.normalizeText(_tagSelectorQueries[containerId] || '')
+        : (_tagSelectorQueries[containerId] || '').trim().toLowerCase();
       const selectedSet = new Set(selectedIds);
       const selectedTags = _allTags.filter(t => selectedSet.has(t.id));
       const matchedTags = _allTags
         .filter(t => !selectedSet.has(t.id))
-        .filter(t => !query || t.name.toLowerCase().includes(query))
+        .filter(t => !query || (window.TagSearch ? window.TagSearch.matches(t.name, query) : t.name.toLowerCase().includes(query)))
         .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
       const selectedHtml = selectedTags.length
         ? `<div class="tag-selector-section-title">已选</div><div class="tag-selector-selected">${renderTagChoices(selectedTags, selectedIds, canManageTag)}</div>`

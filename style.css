@@ -935,9 +935,13 @@ body.immersive .pager-tap-right { bottom: 0; }
 .tag-selector {
   display: grid;
   gap: 8px;
+  max-width: 100%;
+  min-width: 0;
 }
 .tag-selector-host {
   display: block;
+  max-width: 100%;
+  min-width: 0;
 }
 .tag-selector-toolbar {
   display: flex;
@@ -969,8 +973,9 @@ body.immersive .pager-tap-right { bottom: 0; }
   gap: 6px;
 }
 .tag-selector-list {
-  max-height: 160px;
+  max-height: 180px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -992,6 +997,8 @@ body.immersive .pager-tap-right { bottom: 0; }
   line-height: 1.35;
   transition: background .15s, border-color .15s, color .15s;
   user-select: none;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .tag-choice.is-selected {
   background: var(--card-bg);
@@ -1021,6 +1028,32 @@ body.immersive .pager-tap-right { bottom: 0; }
 @media (max-width: 640px) {
   .book-header-with-cover { flex-direction: column; align-items: center; text-align: center; }
   .book-header-with-cover .book-cover-img { width: 100px; }
+}
+
+@media (max-width: 640px) {
+  .search-bar { gap: 6px; }
+  .search-bar input {
+    min-width: 0;
+    font-size: 16px;
+  }
+  .search-bar button {
+    flex: 0 0 auto;
+    padding: 10px 14px;
+  }
+  .book-grid-cover {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .book-card-cover { min-width: 0; }
+  .book-card-cover .card-body h3,
+  .book-card-cover .card-body .original-title {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .admin-section { padding: 16px; }
+  .tag-selector-list { max-height: 148px; }
+  .tag-selector-search { font-size: 16px; }
 }
 
 /* 标签在详情页 */

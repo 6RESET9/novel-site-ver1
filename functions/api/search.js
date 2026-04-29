@@ -76,7 +76,7 @@ export async function onRequestGet(context) {
     });
   }
 
-  // 书籍搜索支持：标题、作者、标签、上传人
+  // 书籍搜索支持：标题、原文名、作者、标签、上传人
   const countResult = await env.DB.prepare(
     `SELECT COUNT(DISTINCT b.id) as total
      FROM books b
@@ -84,14 +84,14 @@ export async function onRequestGet(context) {
      LEFT JOIN book_tags bt ON bt.book_id = b.id
      LEFT JOIN tags t ON t.id = bt.tag_id
      WHERE (b.status IS NULL OR b.status = 'normal')
-       AND (b.title LIKE ? OR b.author LIKE ? OR u.username LIKE ? OR t.name LIKE ?)`
-  ).bind(like, like, like, like).first();
+       AND (b.title LIKE ? OR b.original_title LIKE ? OR b.author LIKE ? OR u.username LIKE ? OR t.name LIKE ?)`
+  ).bind(like, like, like, like, like).first();
   const total = countResult?.total || 0;
   const totalPages = Math.ceil(total / limit);
 
-  // 搜索书籍（标题 + 作者 + 标签 + 上传人）
+  // 搜索书籍（标题 + 原文名 + 作者 + 标签 + 上传人）
   const { results } = await env.DB.prepare(
-    `SELECT b.id, b.title, b.author, b.description, b.cover_key, b.created_at, b.updated_at,
+    `SELECT b.id, b.title, b.original_title, b.author, b.description, b.cover_key, b.ridi_rating, b.created_at, b.updated_at,
       u.username as uploader,
       (SELECT COUNT(*) FROM chapters WHERE book_id = b.id) as chapter_count,
       (SELECT COALESCE(SUM(word_count), 0) FROM chapters WHERE book_id = b.id) as total_words
@@ -100,10 +100,10 @@ export async function onRequestGet(context) {
      LEFT JOIN book_tags bt ON bt.book_id = b.id
      LEFT JOIN tags t ON t.id = bt.tag_id
      WHERE (b.status IS NULL OR b.status = 'normal')
-       AND (b.title LIKE ? OR b.author LIKE ? OR u.username LIKE ? OR t.name LIKE ?)
+       AND (b.title LIKE ? OR b.original_title LIKE ? OR b.author LIKE ? OR u.username LIKE ? OR t.name LIKE ?)
      GROUP BY b.id
      ORDER BY b.updated_at DESC LIMIT ? OFFSET ?`
-  ).bind(like, like, like, like, limit, offset).all();
+  ).bind(like, like, like, like, like, limit, offset).all();
 
   return Response.json({
     books: results,
