@@ -10,7 +10,7 @@ export async function onRequestGet(context) {
   }
 
   const book = await env.DB.prepare(
-    `SELECT b.id, b.title, b.author, b.description, b.cover_key, b.status,
+    `SELECT b.id, b.title, b.original_title, b.author, b.description, b.cover_key, b.ridi_rating, b.status,
       b.annotation_enabled, b.annotation_locked,
       b.created_at, b.updated_at,
       u.username as uploader, u.avatar_url as uploader_avatar

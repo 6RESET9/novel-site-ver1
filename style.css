@@ -859,6 +859,13 @@ body.immersive .pager-tap-right { bottom: 0; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .book-card-cover .card-body .meta { font-size: 12px; color: var(--text-light); }
+.book-card-cover .card-body .original-title {
+  font-size: 12px; color: var(--text-light); margin-bottom: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.book-card-cover .card-body .card-rating {
+  font-size: 12px; color: #e6a817; margin-top: 2px;
+}
 .book-grid-cover {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 16px; margin-top: 20px;
 }
@@ -874,14 +881,136 @@ body.immersive .pager-tap-right { bottom: 0; }
 }
 .tag-pill:hover { opacity: 0.8; }
 .tag-pill.active { border-color: var(--text); }
+.tag-pill-display {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  line-height: 1.45;
+  background: var(--bg);
+  color: var(--text-light);
+  border-color: var(--border);
+  font-weight: 500;
+  cursor: default;
+}
+.tag-pill-display:hover { opacity: 1; }
+.tag-pill-more {
+  color: var(--text-light);
+  border-color: var(--border);
+}
 .tag-filter-bar {
   display: flex; gap: 8px; overflow-x: auto; padding: 8px 0; margin-bottom: 12px;
   -webkit-overflow-scrolling: touch; scrollbar-width: none;
 }
 .tag-filter-bar::-webkit-scrollbar { display: none; }
-.tag-filter-bar .tag-pill { flex-shrink: 0; }
+.tag-filter-bar .tag-pill {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 56px;
+  padding: 8px 12px;
+  line-height: 1.2;
+  flex-shrink: 0;
+  background: var(--bg);
+  color: var(--text-light);
+  border-color: var(--border);
+}
+.tag-filter-bar .tag-pill.active {
+  background: var(--card-bg);
+  color: var(--text);
+  border-color: var(--text);
+}
+.tag-filter-bar .tag-pill-label { font-size: 14px; }
+.tag-filter-bar .tag-pill-count {
+  font-size: 11px;
+  opacity: 0.72;
+}
 .card-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
 .card-tags .tag-pill { font-size: 11px; padding: 1px 6px; cursor: default; }
+
+.tag-selector {
+  display: grid;
+  gap: 8px;
+}
+.tag-selector-host {
+  display: block;
+}
+.tag-selector-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tag-selector-count,
+.tag-selector-empty,
+.tag-selector-section-title {
+  font-size: 12px;
+  color: var(--text-light);
+}
+.tag-selector-search {
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.tag-selector-selected,
+.tag-selector-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tag-selector-list {
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.tag-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 30px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-light);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.35;
+  transition: background .15s, border-color .15s, color .15s;
+  user-select: none;
+}
+.tag-choice.is-selected {
+  background: var(--card-bg);
+  border-color: var(--text);
+  color: var(--text);
+  font-weight: 600;
+}
+.tag-delete-x {
+  min-width: 18px;
+  min-height: 18px;
+  border-radius: 999px;
+  text-align: center;
+  line-height: 18px;
+  opacity: .65;
+}
+.tag-delete-x:hover {
+  background: var(--border);
+  opacity: 1;
+}
 
 /* 书籍详情页封面 */
 .book-header-with-cover { display: flex; gap: 20px; align-items: flex-start; }

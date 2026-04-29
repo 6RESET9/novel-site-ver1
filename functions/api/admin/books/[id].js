@@ -30,16 +30,36 @@ export async function onRequestPut(context) {
   const body = await parseJsonBody(request);
   if (!body) return Response.json({ error: 'Invalid JSON' }, { status: 400 });
 
-  const title = (body.title || book.title || '').trim().slice(0, 200);
+  const title = (body.title ?? book.title ?? '').trim().slice(0, 200);
+  const original_title = (body.original_title ?? book.original_title ?? '').trim().slice(0, 200);
   const author = (body.author ?? book.author ?? '').trim().slice(0, 100);
   const description = (body.description ?? book.description ?? '').trim().slice(0, 2000);
+
+  // 原文名和译名至少填一个
+  if (!title && !original_title) {
+    return Response.json({ error: '译名和原文名至少填写一个' }, { status: 400 });
+  }
+
+  // ridi评分校验：0-5，支持小数
+  let ratingValue = book.ridi_rating;
+  if (body.ridi_rating !== undefined) {
+    if (body.ridi_rating === null || body.ridi_rating === '') {
+      ratingValue = null;
+    } else {
+      const parsed = parseFloat(body.ridi_rating);
+      if (isNaN(parsed) || parsed < 0 || parsed > 5) {
+        return Response.json({ error: 'ridi评分范围为 0-5' }, { status: 400 });
+      }
+      ratingValue = Math.round(parsed * 10) / 10;
+    }
+  }
 
   // 批注开关：只接受 0 或 1
   const annotationEnabled = body.annotation_enabled === 1 || body.annotation_enabled === true ? 1 : (body.annotation_enabled === 0 || body.annotation_enabled === false ? 0 : (book.annotation_enabled || 0));
 
   await env.DB.prepare(`
-    UPDATE books SET title = ?, author = ?, description = ?, annotation_enabled = ?, updated_at = datetime('now') WHERE id = ?
-  `).bind(title, author, description, annotationEnabled, params.id).run();
+    UPDATE books SET title = ?, original_title = ?, author = ?, description = ?, ridi_rating = ?, annotation_enabled = ?, updated_at = datetime('now') WHERE id = ?
+  `).bind(title, original_title, author, description, ratingValue, annotationEnabled, params.id).run();
 
   return Response.json({ success: true });
 }

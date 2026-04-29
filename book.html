@@ -70,24 +70,34 @@
         const chapters = data.chapters || [];
         allChapters = chapters;
 
-        document.title = esc(b.title) + ' - 我的书架';
-        document.querySelector('meta[name="description"]').content = b.description || b.title;
-        document.getElementById('bc-title').textContent = b.title;
+        const displayTitle = b.title || b.original_title || '?';
+        document.title = esc(displayTitle) + ' - 我的书架';
+        document.querySelector('meta[name="description"]').content = b.description || displayTitle;
+        document.getElementById('bc-title').textContent = displayTitle;
 
-        const tagsHtml = (b.tags || []).map(t => `<span class="tag-pill" style="background:${esc(t.color)}22;color:${esc(t.color)}">${esc(t.name)}</span>`).join('');
+        const tagsHtml = (b.tags || []).map(t => `<span class="tag-pill tag-pill-display">${esc(t.name)}</span>`).join('');
         const tagsBlock = tagsHtml ? `<div class="book-tags">${tagsHtml}</div>` : '';
 
         const uploaderHtml = b.uploader ? `<div class="uploader" style="font-size:13px;color:var(--text-light);margin-top:4px">${b.uploader_avatar ? '<img src="'+esc(b.uploader_avatar)+'" style="width:16px;height:16px;border-radius:50%;vertical-align:middle;margin-right:3px">' : ''}上传：${esc(b.uploader)}</div>` : '';
+
+        // 构建标题区域：译名 + 原文名
+        let titleHtml = '';
+        if (b.title) titleHtml += `<h2>${esc(b.title)}</h2>`;
+        if (b.original_title) titleHtml += `<div style="font-size:14px;color:var(--text-light);margin-top:2px">原文名：${esc(b.original_title)}</div>`;
+        if (!b.title && !b.original_title) titleHtml = `<h2>?</h2>`;
+        // ridi评分
+        const ratingHtml = b.ridi_rating != null ? `<div style="font-size:14px;color:#e6a817;margin-top:4px">ridi评分：${b.ridi_rating}</div>` : '';
 
         let html;
         if (b.cover_key) {
           html = `
             <div class="book-header">
               <div class="book-header-with-cover">
-                <img class="book-cover-img" src="/api/covers/${b.id}" alt="${esc(b.title)}">
+                <img class="book-cover-img" src="/api/covers/${b.id}" alt="${esc(displayTitle)}">
                 <div class="book-info">
-                  <h2>${esc(b.title)}</h2>
+                  ${titleHtml}
                   ${b.author ? `<div class="author">作者：${esc(b.author)}</div>` : ''}
+                  ${ratingHtml}
                   ${uploaderHtml}
                   ${b.description ? `<div class="desc">${cleanDesc(b.description)}</div>` : ''}
                   ${tagsBlock}
@@ -98,8 +108,9 @@
         } else {
           html = `
             <div class="book-header">
-              <h2>${esc(b.title)}</h2>
+              ${titleHtml}
               ${b.author ? `<div class="author">作者：${esc(b.author)}</div>` : ''}
+              ${ratingHtml}
               ${uploaderHtml}
               ${b.description ? `<div class="desc">${cleanDesc(b.description)}</div>` : ''}
               ${tagsBlock}

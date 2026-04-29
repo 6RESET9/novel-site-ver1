@@ -20,9 +20,11 @@
 --   created_at/updated_at: 时间戳
 CREATE TABLE IF NOT EXISTS books (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  title TEXT NOT NULL,                    -- 书名，必填
+  title TEXT NOT NULL,                    -- 书名（译名），必填
+  original_title TEXT DEFAULT '',         -- 原文名，可选（与title至少填一个）
   description TEXT DEFAULT '',            -- 简介，可选
   author TEXT DEFAULT '',                 -- 作者，可选
+  ridi_rating REAL DEFAULT NULL,          -- ridi评分（0-5，支持小数）
   cover_key TEXT DEFAULT '',              -- 封面R2存储键
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))

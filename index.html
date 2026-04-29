@@ -25,7 +25,7 @@
     <div id="reading-stats"></div>
     <div id="tag-filter"></div>
     <div class="search-bar">
-      <input type="text" id="search-input" placeholder="搜索标题 / 作者 / 标签 / 上传人..." autocomplete="off">
+      <input type="text" id="search-input" placeholder="搜索译名 / 原文名 / 作者 / 标签 / 上传人..." autocomplete="off">
       <button onclick="doSearch()">搜索</button>
     </div>
     <div id="search-results" class="search-results" style="display:none"></div>
@@ -148,7 +148,8 @@
     // 搜索
     let allBooks = [];
     let allTags = [];
-    let activeTagId = null;
+    let activeTagIds = new Set();
+    const MAX_CARD_TAGS = 4;
 
     function doSearch() {
       const q = document.getElementById('search-input').value.trim().toLowerCase();
@@ -163,6 +164,7 @@
         const tagNames = (b.tags || []).map(t => t.name).join(' ');
         return (
           (b.title || '').toLowerCase().includes(q) ||
+          (b.original_title || '').toLowerCase().includes(q) ||
           (b.author || '').toLowerCase().includes(q) ||
           tagNames.toLowerCase().includes(q) ||
           (b.uploader || '').toLowerCase().includes(q)
@@ -171,12 +173,19 @@
       if (matched.length === 0) {
         resultsEl.innerHTML = '<div style="padding:16px;color:var(--text-light);text-align:center">没有找到匹配的书籍</div>';
       } else {
-        resultsEl.innerHTML = matched.map(b => `
+        resultsEl.innerHTML = matched.map(b => {
+          const displayTitle = b.title || b.original_title || '?';
+          let titleParts = [];
+          if (b.title) titleParts.push(highlightMatch(esc(b.title), q));
+          if (b.original_title) titleParts.push('原文名：' + highlightMatch(esc(b.original_title), q));
+          const titleHtml = titleParts.length > 0 ? titleParts.join('<br>') : esc(displayTitle);
+          return `
           <a class="result-item" href="/book.html?id=${b.id}">
-            <div class="result-title">${highlightMatch(esc(b.title), q)}</div>
+            <div class="result-title">${titleHtml}</div>
             <div class="result-book">${formatSearchMeta(b, q)}</div>
           </a>
-        `).join('');
+        `;
+        }).join('');
       }
       resultsEl.style.display = '';
       contentEl.style.display = 'none';
@@ -189,6 +198,7 @@
     function formatSearchMeta(book, q) {
       const parts = [];
       if (book.author) parts.push(highlightMatch(esc(book.author), q));
+      if (book.ridi_rating != null) parts.push('⭐ ' + book.ridi_rating);
       if (book.uploader) parts.push('上传：' + highlightMatch(esc(book.uploader), q));
       const tagNames = (book.tags || []).map(t => t.name).join(' / ');
       if (tagNames) parts.push('标签：' + highlightMatch(esc(tagNames), q));
@@ -242,30 +252,52 @@
       }
     }
 
-    function renderTagFilter() {
+function renderTagFilter() {
       const container = document.getElementById('tag-filter');
       if (allTags.length === 0) { container.innerHTML = ''; return; }
       container.innerHTML = '<div class="tag-filter-bar" id="tag-bar"></div>';
       const bar = document.getElementById('tag-bar');
+      const totalBookCount = allBooks.length;
       const allPill = document.createElement('span');
-      allPill.className = 'tag-pill' + (activeTagId === null ? ' active' : '');
-      allPill.textContent = '全部';
-      allPill.style.background = 'var(--bg)'; allPill.style.color = 'var(--text)';
-      allPill.style.border = '1px solid var(--border)';
+      allPill.className = 'tag-pill' + (activeTagIds.size === 0 ? ' active' : '');
+      const allLabel = document.createElement('span');
+      allLabel.className = 'tag-pill-label';
+      allLabel.textContent = '\u5168\u90e8';
+      allPill.appendChild(allLabel);
+      const allCount = document.createElement('span');
+      allCount.className = 'tag-pill-count';
+      allCount.textContent = String(totalBookCount);
+      allPill.appendChild(allCount);
       bar.appendChild(allPill);
       for (const tag of allTags) {
         const pill = document.createElement('span');
-        pill.className = 'tag-pill' + (activeTagId === tag.id ? ' active' : '');
-        pill.textContent = tag.name;
-        pill.style.background = tag.color + '22'; pill.style.color = tag.color;
+        pill.className = 'tag-pill' + (activeTagIds.has(tag.id) ? ' active' : '');
         pill.dataset.tagId = tag.id;
+        const label = document.createElement('span');
+        label.className = 'tag-pill-label';
+        label.textContent = tag.name;
+        pill.appendChild(label);
+        const count = document.createElement('span');
+        count.className = 'tag-pill-count';
+        count.textContent = String(tag.book_count || 0);
+        pill.appendChild(count);
         bar.appendChild(pill);
       }
       bar.addEventListener('click', (e) => {
         const pill = e.target.closest('.tag-pill');
         if (!pill) return;
         const tagId = pill.dataset.tagId ? Number(pill.dataset.tagId) : null;
-        activeTagId = tagId;
+        if (tagId === null) {
+          // 点击"全部"，清空所有选中
+          activeTagIds.clear();
+        } else {
+          // 多选：点击切换选中状态
+          if (activeTagIds.has(tagId)) {
+            activeTagIds.delete(tagId);
+          } else {
+            activeTagIds.add(tagId);
+          }
+        }
         renderTagFilter();
         filterAndRenderBooks();
       });
@@ -273,8 +305,12 @@
 
     function filterAndRenderBooks() {
       let filtered = allBooks;
-      if (activeTagId !== null) {
-        filtered = allBooks.filter(b => (b.tags || []).some(t => t.id === activeTagId));
+      if (activeTagIds.size > 0) {
+        filtered = allBooks.filter(b => {
+          const bookTagIds = (b.tags || []).map(t => t.id);
+          // AND 逻辑：书籍必须包含所有选中的标签
+          return [...activeTagIds].every(tid => bookTagIds.includes(tid));
+        });
       }
       renderBooks(filtered);
     }
@@ -297,24 +333,37 @@
       }
       el.className = 'book-grid-cover';
       el.innerHTML = books.map(b => {
-        const tagsHtml = (b.tags || []).map(t => `<span class="tag-pill" style="background:${esc(t.color)}22;color:${esc(t.color)}">${esc(t.name)}</span>`).join('');
+        const visibleTags = (b.tags || []).slice(0, MAX_CARD_TAGS);
+        const hiddenTagCount = Math.max(0, (b.tags || []).length - visibleTags.length);
+        const tagsHtml = visibleTags.map(t => `<span class="tag-pill tag-pill-display">${esc(t.name)}</span>`).join('') +
+          (hiddenTagCount ? `<span class="tag-pill tag-pill-display tag-pill-more">+${hiddenTagCount}</span>` : '');
+        // 构建标题区域：译名 + 原文名
+        const displayTitle = b.title || b.original_title || '?';
+        let titleHtml = '';
+        if (b.title) titleHtml += `<h3>${esc(b.title)}</h3>`;
+        if (b.original_title) titleHtml += `<div class="original-title">原文名：${esc(b.original_title)}</div>`;
+        if (!b.title && !b.original_title) titleHtml = `<h3>?</h3>`;
+        // ridi评分
+        const ratingHtml = b.ridi_rating != null ? `<div class="card-rating">⭐ ${b.ridi_rating}</div>` : '';
         if (b.cover_key) {
           return `<a class="book-card-cover" href="/book.html?id=${b.id}">
-            <img class="cover-img" src="/api/covers/${b.id}" alt="${esc(b.title)}" loading="lazy">
+            <img class="cover-img" src="/api/covers/${b.id}" alt="${esc(displayTitle)}" loading="lazy">
             <div class="card-body">
-              <h3>${esc(b.title)}</h3>
+              ${titleHtml}
               <div class="meta">${b.author ? esc(b.author) + ' · ' : ''}${b.chapter_count}章</div>
+              ${ratingHtml}
               ${tagsHtml ? '<div class="card-tags">' + tagsHtml + '</div>' : ''}
             </div>
           </a>`;
         } else {
-          const color = coverColor(b.title);
-          const firstChar = (b.title || '?')[0];
+          const color = coverColor(displayTitle);
+          const firstChar = (displayTitle || '?')[0];
           return `<a class="book-card-cover" href="/book.html?id=${b.id}">
             <div class="cover-placeholder" style="background:${color}">${esc(firstChar)}</div>
             <div class="card-body">
-              <h3>${esc(b.title)}</h3>
+              ${titleHtml}
               <div class="meta">${b.author ? esc(b.author) + ' · ' : ''}${b.chapter_count}章</div>
+              ${ratingHtml}
               ${tagsHtml ? '<div class="card-tags">' + tagsHtml + '</div>' : ''}
             </div>
           </a>`;

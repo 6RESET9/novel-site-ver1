@@ -166,6 +166,10 @@ async function ensureSchema(env) {
     try { await env.DB.prepare('ALTER TABLE books ADD COLUMN annotation_enabled INTEGER NOT NULL DEFAULT 0').run(); } catch {}
     try { await env.DB.prepare('ALTER TABLE books ADD COLUMN annotation_locked INTEGER NOT NULL DEFAULT 0').run(); } catch {}
 
+    // 原文名 + ridi评分
+    try { await env.DB.prepare("ALTER TABLE books ADD COLUMN original_title TEXT DEFAULT ''").run(); } catch {}
+    try { await env.DB.prepare('ALTER TABLE books ADD COLUMN ridi_rating REAL DEFAULT NULL').run(); } catch {}
+
     // 所有迁移成功完成，标记为已完成
     _schemaEnsured = true;
   } catch (e) {
