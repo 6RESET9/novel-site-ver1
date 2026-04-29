@@ -1,6 +1,6 @@
 // Service Worker for 小说站 PWA
-const CACHE_NAME = 'novel-site-v6';
-const APP_SHELL = ['/style.css?v=20260430', '/tag-search.js?v=20260430', '/manifest.json', '/icon.svg'];
+const CACHE_NAME = 'novel-site-v7';
+const APP_SHELL = ['/style.css?v=20260430b', '/tag-search.js?v=20260430', '/manifest.json', '/icon.svg'];
 const HTML_PATHS = new Set(['/', '/index', '/index.html', '/book', '/book.html', '/read', '/read.html']);
 
 function isHtmlRequest(request, url) {

@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://github.com" crossorigin>
   <link rel="dns-prefetch" href="https://github.com">
   
-  <link rel="stylesheet" href="/style.css?v=20260430">
+  <link rel="stylesheet" href="/style.css?v=20260430b">
   <script src="/tag-search.js?v=20260430"></script>
   <script src="/jszip.min.js"></script>
 </head>
@@ -2243,12 +2243,25 @@
 
     function bindTagSelectorEvents(container, containerId, selectedIds, onToggle) {
       const search = container.querySelector('.tag-selector-search');
-      search.addEventListener('input', (e) => {
-        _tagSelectorQueries[containerId] = e.target.value;
+      let isComposing = false;
+      const rerenderAfterInput = (input) => {
+        _tagSelectorQueries[containerId] = input.value;
         renderTagSelector(containerId, selectedIds, onToggle);
         const nextSearch = container.querySelector('.tag-selector-search');
         nextSearch.focus();
         nextSearch.setSelectionRange(nextSearch.value.length, nextSearch.value.length);
+      };
+      search.addEventListener('compositionstart', () => {
+        isComposing = true;
+      });
+      search.addEventListener('compositionend', (e) => {
+        isComposing = false;
+        rerenderAfterInput(e.target);
+      });
+      search.addEventListener('input', (e) => {
+        _tagSelectorQueries[containerId] = e.target.value;
+        if (isComposing) return;
+        rerenderAfterInput(e.target);
       });
       container.querySelectorAll('label[data-tag-id]').forEach(label => {
         label.addEventListener('click', (e) => {
