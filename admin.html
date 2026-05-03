@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://github.com" crossorigin>
   <link rel="dns-prefetch" href="https://github.com">
   
-  <link rel="stylesheet" href="/style.css?v=20260503a">
+  <link rel="stylesheet" href="/style.css?v=20260503b">
   <script src="/tag-search.js?v=20260430"></script>
   <script src="/jszip.min.js"></script>
 </head>
@@ -1700,6 +1700,7 @@
     // ===== EPUB导入 =====
     let epubChapters = [];
     const EPUB_MINOR_TITLE_REGEX = /^[-~—–_.·•\s]*((\d+)|([IVXLCDM]+)|([ivxlcdm]+)|([零〇一二三四五六七八九十百千万]+))(?:[.)）】」]|[-~—–_.·•\s])*$/;
+    const EPUB_SERIAL_TITLE_REGEX = /^[-~—–_.·•\s]*(?:[#＃]\s*\d+[.)。]?|(?:chapter|chatper)\.?\s*\d+|第\s*[零〇一二三四五六七八九十百千万\d]+\s*[章节回卷集部篇幕话][.)。]?|\d+\s*화|prologue|epilogue|epliogue)[-~—–_.·•\s]*$/i;
     const EPUB_VOLUME_TITLE_REGEX = /(?:^|[\s|｜])(?:(?:第\s*[零〇一二三四五六七八九十百千万\d]+\s*卷)|(?:卷\s*[零〇一二三四五六七八九十百千万\d]+)|(?:vol(?:ume)?\.?\s*\d+)|(?:book\s+\d+))(?:\s|$)/i;
     const EPUB_INVISIBLE_TEXT_REGEX = /[\u200B\u200C\u200D\u2060\u2061\u2062\u2063\u2064\uFEFF]/g;
 
@@ -1729,6 +1730,10 @@
       return EPUB_MINOR_TITLE_REGEX.test(normalizeEpubTitle(title));
     }
 
+    function isSerialEpubTitle(title) {
+      return EPUB_SERIAL_TITLE_REGEX.test(normalizeEpubTitle(title));
+    }
+
     function isVolumeEpubTitle(title) {
       return EPUB_VOLUME_TITLE_REGEX.test(normalizeEpubTitle(title));
     }
@@ -1754,7 +1759,7 @@
     function isPrimaryEpubTitle(title) {
       const normalized = normalizeEpubTitle(title);
       if (!normalized) return false;
-      return /^(chapter\.?\s*\d+|part\s+(?:\d+|[ivxlcdm]+)|book\s+\d+|volume\s+\d+|vol\.?\s+\d+)/i.test(normalized);
+      return /^((?:chapter|chatper)\.?\s*\d+|part\s+(?:\d+|[ivxlcdm]+)|book\s+\d+|volume\s+\d+|vol\.?\s+\d+)/i.test(normalized);
     }
 
     function isStandaloneEpubTitle(title) {
@@ -1762,6 +1767,13 @@
       if (!normalized || normalized.length > 80) return false;
       if (isDecorativeEpubTitle(normalized) || isVolumeEpubTitle(normalized) || isTocEpubTitle(normalized) || isMetaEpubTitle(normalized) || isPrimaryEpubTitle(normalized)) return false;
       return true;
+    }
+
+    function isUsableEpubTitle(title) {
+      const normalized = normalizeEpubTitle(title);
+      if (!normalized || normalized.length > 80) return false;
+      if (isDecorativeEpubTitle(normalized) || isVolumeEpubTitle(normalized) || isTocEpubTitle(normalized) || isMetaEpubTitle(normalized)) return false;
+      return isMinorEpubTitle(normalized) || isSerialEpubTitle(normalized) || isPrimaryEpubTitle(normalized) || isStandaloneEpubTitle(normalized);
     }
 
     function uniqueEpubTitles(titles) {
@@ -1782,6 +1794,25 @@
       return zip.file(normalizedPath)
         || (() => { try { return zip.file(decodeURIComponent(normalizedPath)); } catch { return null; } })()
         || (() => { try { return rawHref ? zip.file(normalizeEpubPath(path.replace(rawHref, encodeURI(rawHref)))) : null; } catch { return null; } })();
+    }
+
+    function decodeEpubEntities(text) {
+      const el = document.createElement('textarea');
+      el.innerHTML = String(text || '');
+      return el.value;
+    }
+
+    function parseNcxTextForToc(ncxText, addTocTitle, baseDir) {
+      const navPointRegex = /<navPoint\b[\s\S]*?<\/navPoint>/gi;
+      let match;
+      while (match = navPointRegex.exec(ncxText || '')) {
+        const block = match[0];
+        const labelMatch = block.match(/<navLabel\b[^>]*>[\s\S]*?<text\b[^>]*>([\s\S]*?)<\/text>[\s\S]*?<\/navLabel>/i);
+        const contentMatch = block.match(/<content\b[^>]*\bsrc=["']([^"']+)["'][^>]*\/?>/i);
+        if (!labelMatch || !contentMatch) continue;
+        const label = decodeEpubEntities(labelMatch[1].replace(/<[^>]+>/g, ''));
+        addTocTitle(contentMatch[1], label, baseDir);
+      }
     }
 
     function collectEpubHeadingLines(doc) {
@@ -1948,8 +1979,11 @@
         const ncxPath = normalizeEpubPath(opfDir + ncxItem.href);
         const ncxText = await resolveEpubZipEntry(zip, ncxPath, ncxItem.href)?.async('text');
         if (ncxText) {
-          const ncxDoc = new DOMParser().parseFromString(ncxText, 'application/xml');
+          const beforeTextParse = tocTitles.size;
           const ncxDir = ncxPath.includes('/') ? ncxPath.slice(0, ncxPath.lastIndexOf('/') + 1) : '';
+          parseNcxTextForToc(ncxText, addTocTitle, ncxDir);
+          if (tocTitles.size > beforeTextParse) continue;
+          const ncxDoc = new DOMParser().parseFromString(ncxText, 'application/xml');
           ncxDoc.querySelectorAll('navMap navPoint').forEach(point => {
             addTocTitle(point.querySelector('content')?.getAttribute('src'), point.querySelector('navLabel text')?.textContent, ncxDir);
           });
@@ -1991,8 +2025,8 @@
         ...page.headingLines,
         ...page.tocTitles
       ]);
-      const minorTitle = orderedCandidates.find(isMinorEpubTitle);
-      if (minorTitle) return minorTitle.substring(0, 200);
+      const structuredTitle = orderedCandidates.find(isUsableEpubTitle);
+      if (structuredTitle) return structuredTitle.substring(0, 200);
       if (page.hasToc && page.tocTitles.length === 0) return '';
 
       const headingCandidates = uniqueEpubTitles(page.headingLines)
@@ -2003,7 +2037,7 @@
 
       const meaningfulCandidates = orderedCandidates
         .filter(title => !isDecorativeEpubTitle(title) && !isVolumeEpubTitle(title) && !isTocEpubTitle(title) && !isMetaEpubTitle(title));
-      if (meaningfulCandidates.length === 1 && isStandaloneEpubTitle(meaningfulCandidates[0])) {
+      if (meaningfulCandidates.length === 1 && isUsableEpubTitle(meaningfulCandidates[0])) {
         return meaningfulCandidates[0].substring(0, 200);
       }
 

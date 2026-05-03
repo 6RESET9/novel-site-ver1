@@ -199,6 +199,22 @@ textarea:focus-visible,
   font-size: 14px;
 }
 .navbar nav a:hover { color: var(--accent-dark); }
+.nav-announcement-btn {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.nav-announcement-btn:hover {
+  background: var(--bg);
+  border-color: var(--accent);
+  color: var(--accent-dark);
+}
 
 /* 用户角色标签 */
 .role-badge {

@@ -8,7 +8,7 @@
   <meta property="og:title" content="我的书架">
   <meta property="og:description" content="私人小说站，零成本搭建在 Cloudflare 上">
   
-  <link rel="stylesheet" href="/style.css?v=20260503a">
+  <link rel="stylesheet" href="/style.css?v=20260503b">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#d4a574">
 </head>
@@ -17,6 +17,7 @@
     <h1><a href="/">📚 我的书架</a></h1>
     <nav>
       <span id="nav-user"></span>
+      <button class="nav-announcement-btn" id="announcement-open" type="button" hidden>公告</button>
       <button class="theme-toggle" onclick="toggleTheme()" title="切换主题">🌙</button>
     </nav>
   </div>
@@ -410,12 +411,10 @@ function renderTagFilter() {
       return [settings.announcement_title || '', ...books].join('|');
     }
 
-    function maybeShowAnnouncement(settings) {
-      if (settings.announcement_enabled !== 'true') return;
-      const books = parseAnnouncementBooks(settings.announcement_books);
-      if (books.length === 0) return;
-      const version = getAnnouncementVersion(settings, books);
-      if (localStorage.getItem('announcement_seen_version') === version) return;
+    let currentAnnouncementSettings = null;
+    let currentAnnouncementBooks = [];
+
+    function showAnnouncementDialog(settings, books, version, markSeenOnConfirm) {
       const overlay = document.getElementById('announcement-overlay');
       const title = document.getElementById('announcement-title');
       const list = document.getElementById('announcement-books');
@@ -430,11 +429,25 @@ function renderTagFilter() {
       overlay.hidden = false;
       requestAnimationFrame(() => overlay.classList.add('active'));
       btn.onclick = () => {
-        localStorage.setItem('announcement_seen_version', version);
+        if (markSeenOnConfirm) localStorage.setItem('announcement_seen_version', version);
         overlay.classList.remove('active');
         setTimeout(() => { overlay.hidden = true; }, 180);
       };
       btn.focus();
+    }
+
+    function setupAnnouncement(settings) {
+      if (settings.announcement_enabled !== 'true') return;
+      const books = parseAnnouncementBooks(settings.announcement_books);
+      if (books.length === 0) return;
+      const version = getAnnouncementVersion(settings, books);
+      currentAnnouncementSettings = settings;
+      currentAnnouncementBooks = books;
+      const openBtn = document.getElementById('announcement-open');
+      openBtn.hidden = false;
+      openBtn.onclick = () => showAnnouncementDialog(currentAnnouncementSettings, currentAnnouncementBooks, version, false);
+      if (localStorage.getItem('announcement_seen_version') === version) return;
+      showAnnouncementDialog(settings, books, version, true);
     }
 
     // 加载站点设置
@@ -449,7 +462,7 @@ function renderTagFilter() {
         document.querySelector('meta[name="description"]').content = s.site_desc;
         document.querySelector('meta[property="og:description"]').content = s.site_desc;
       }
-      maybeShowAnnouncement(s);
+      setupAnnouncement(s);
     }).catch(() => {});
   </script>
 </body>
