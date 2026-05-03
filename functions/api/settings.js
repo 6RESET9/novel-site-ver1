@@ -1,5 +1,14 @@
 // GET /api/settings — 公开读取站点设置（白名单过滤）
-const PUBLIC_KEYS = ['site_name', 'site_desc', 'footer_text', 'custom_fonts'];
+const PUBLIC_KEYS = [
+  'site_name',
+  'site_desc',
+  'footer_text',
+  'custom_fonts',
+  'announcement_enabled',
+  'announcement_title',
+  'announcement_version',
+  'announcement_books',
+];
 
 export async function onRequestGet(context) {
   const { env, request } = context;

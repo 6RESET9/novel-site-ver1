@@ -3,8 +3,16 @@
 // PUT /api/admin/settings/github — 保存 GitHub OAuth 配置（仅超管）
 import { checkAdmin, requireSuperAdmin, parseJsonBody } from '../_utils.js';
 
-const ALLOWED_KEYS = ['site_name', 'site_desc', 'footer_text'];
-const MAX_VALUE_LENGTH = 500;
+const SETTING_LIMITS = {
+  site_name: 100,
+  site_desc: 200,
+  footer_text: 500,
+  announcement_enabled: 5,
+  announcement_title: 100,
+  announcement_version: 80,
+  announcement_books: 5000,
+};
+const ALLOWED_KEYS = Object.keys(SETTING_LIMITS);
 
 export async function onRequestPut(context) {
   const { request, env } = context;
@@ -26,7 +34,7 @@ export async function onRequestPut(context) {
   for (const [key, value] of Object.entries(body.settings)) {
     if (!ALLOWED_KEYS.includes(key)) continue;
     if (typeof value !== 'string') continue;
-    const trimmed = value.trim().slice(0, MAX_VALUE_LENGTH);
+    const trimmed = value.trim().slice(0, SETTING_LIMITS[key]);
     updates.push(
       env.DB.prepare('INSERT OR REPLACE INTO site_settings (key, value) VALUES (?, ?)')
         .bind(key, trimmed)

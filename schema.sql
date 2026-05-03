@@ -117,6 +117,10 @@ CREATE TABLE IF NOT EXISTS site_settings (
 INSERT OR IGNORE INTO site_settings (key, value) VALUES ('site_name', '我的书架');
 INSERT OR IGNORE INTO site_settings (key, value) VALUES ('site_desc', '私人小说站');
 INSERT OR IGNORE INTO site_settings (key, value) VALUES ('footer_text', '');
+INSERT OR IGNORE INTO site_settings (key, value) VALUES ('announcement_enabled', 'false');
+INSERT OR IGNORE INTO site_settings (key, value) VALUES ('announcement_title', '新公开分享');
+INSERT OR IGNORE INTO site_settings (key, value) VALUES ('announcement_version', '');
+INSERT OR IGNORE INTO site_settings (key, value) VALUES ('announcement_books', '');
 
 -- 认证限流表：防止暴力破解
 -- 字段说明:

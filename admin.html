@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://github.com" crossorigin>
   <link rel="dns-prefetch" href="https://github.com">
   
-  <link rel="stylesheet" href="/style.css?v=20260430c">
+  <link rel="stylesheet" href="/style.css?v=20260503a">
   <script src="/tag-search.js?v=20260430"></script>
   <script src="/jszip.min.js"></script>
 </head>
@@ -133,6 +133,21 @@
         <div class="form-group">
           <label>页脚文字</label>
           <input type="text" id="set-footer" placeholder="如：Powered by Cloudflare" maxlength="200">
+        </div>
+        <div class="form-group">
+          <label><input type="checkbox" id="set-announcement-enabled"> 启用首页公告</label>
+        </div>
+        <div class="form-group">
+          <label>公告标题</label>
+          <input type="text" id="set-announcement-title" placeholder="新公开分享" maxlength="100">
+        </div>
+        <div class="form-group">
+          <label>公告版本</label>
+          <input type="text" id="set-announcement-version" placeholder="如：2026-05-03-01" maxlength="80">
+        </div>
+        <div class="form-group">
+          <label>新公开书名列表（一行一本）</label>
+          <textarea id="set-announcement-books" placeholder="请不要给怪谈赐名&#10;以错觉为救赎" maxlength="5000" style="min-height:100px"></textarea>
         </div>
         <button class="btn" onclick="saveSettings()">保存设置</button>
         <div id="settings-msg"></div>
@@ -676,6 +691,10 @@
         document.getElementById('set-site-name').value = s.site_name || '';
         document.getElementById('set-site-desc').value = s.site_desc || '';
         document.getElementById('set-footer').value = s.footer_text || '';
+        document.getElementById('set-announcement-enabled').checked = s.announcement_enabled === 'true';
+        document.getElementById('set-announcement-title').value = s.announcement_title || '';
+        document.getElementById('set-announcement-version').value = s.announcement_version || '';
+        document.getElementById('set-announcement-books').value = s.announcement_books || '';
         if (s.site_name) document.querySelector('.navbar h1 a').textContent = '📚 ' + s.site_name;
       } catch {}
     }
@@ -684,6 +703,10 @@
         site_name: document.getElementById('set-site-name').value.trim(),
         site_desc: document.getElementById('set-site-desc').value.trim(),
         footer_text: document.getElementById('set-footer').value.trim(),
+        announcement_enabled: document.getElementById('set-announcement-enabled').checked ? 'true' : 'false',
+        announcement_title: document.getElementById('set-announcement-title').value.trim(),
+        announcement_version: document.getElementById('set-announcement-version').value.trim(),
+        announcement_books: document.getElementById('set-announcement-books').value.trim(),
       };
       try {
         const res = await api('PUT','/api/admin/settings',{settings});
@@ -1678,9 +1701,28 @@
     let epubChapters = [];
     const EPUB_MINOR_TITLE_REGEX = /^[-~—–_.·•\s]*((\d+)|([IVXLCDM]+)|([ivxlcdm]+)|([零〇一二三四五六七八九十百千万]+))(?:[.)）】」]|[-~—–_.·•\s])*$/;
     const EPUB_VOLUME_TITLE_REGEX = /(?:^|[\s|｜])(?:(?:第\s*[零〇一二三四五六七八九十百千万\d]+\s*卷)|(?:卷\s*[零〇一二三四五六七八九十百千万\d]+)|(?:vol(?:ume)?\.?\s*\d+)|(?:book\s+\d+))(?:\s|$)/i;
+    const EPUB_INVISIBLE_TEXT_REGEX = /[\u200B\u200C\u200D\u2060\u2061\u2062\u2063\u2064\uFEFF]/g;
 
     function normalizeEpubTitle(text) {
-      return String(text || '').replace(/\s+/g, ' ').trim();
+      return String(text || '').replace(EPUB_INVISIBLE_TEXT_REGEX, '').replace(/\s+/g, ' ').trim();
+    }
+
+    function cleanEpubText(text) {
+      return String(text || '')
+        .replace(EPUB_INVISIBLE_TEXT_REGEX, '')
+        .replace(/\u00A0/g, ' ')
+        .replace(/[ \t]+/g, ' ')
+        .trim();
+    }
+
+    function compactEpubLines(text) {
+      return String(text || '')
+        .replace(EPUB_INVISIBLE_TEXT_REGEX, '')
+        .replace(/\u00A0/g, ' ')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n[ \t]+/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
     }
 
     function isMinorEpubTitle(title) {
@@ -1750,7 +1792,7 @@
         if (!normalized || headings.includes(normalized)) return;
         headings.push(normalized);
       };
-      Array.from(scope.querySelectorAll('h1, h2, h3')).forEach(el => pushHeading(el.textContent));
+      Array.from(scope.querySelectorAll('h1, h2, h3, h4, h5, h6')).forEach(el => pushHeading(el.textContent));
       if (headings.length > 0) return headings.slice(0, 4);
 
       const blockCandidates = Array.from(scope.querySelectorAll('p, div, blockquote, li')).slice(0, 12);
@@ -1786,27 +1828,73 @@
       return kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
     }
 
-    function extractEpubBodyText(doc) {
-      const body = doc.body || doc.documentElement;
-      if (!body) return '';
-      const blocks = body.querySelectorAll('p, div, h1, h2, h3, h4, h5, h6, li, blockquote, pre, br');
-      if (blocks.length === 0) {
-        return (body.textContent || '')
-          .replace(/[ \t]+/g, ' ')
-          .replace(/\n\s*\n/g, '\n\n')
-          .trim();
+    function hasRichEpubBlocks(body) {
+      return !!body.querySelector([
+        '.fixed-subtitle-container', '.fixed-subtitle-text',
+        '.post_box1', '.post_box1_in', '.post_box2',
+        '.txt_box_black', '.txt_box_black_1', '.screen',
+        '.sms_wrap', '.sms_left', '.sms_right'
+      ].join(','));
+    }
+
+    function pushEpubLine(lines, text, prefix = '') {
+      const clean = cleanEpubText(text);
+      if (clean) lines.push(prefix + clean);
+    }
+
+    function pushEpubBreak(lines) {
+      if (lines.length > 0 && lines[lines.length - 1] !== '') lines.push('');
+    }
+
+    function appendRichEpubBlock(lines, el, label) {
+      pushEpubBreak(lines);
+      if (label) lines.push(label);
+      Array.from(el.children).forEach(child => appendRichEpubElement(lines, child));
+      if (el.children.length === 0) pushEpubLine(lines, el.textContent);
+      pushEpubBreak(lines);
+    }
+
+    function appendRichEpubElement(lines, el) {
+      const cls = String(el.className || '');
+      if (el.matches('.fixed-subtitle-container, .fixed-subtitle-text')) {
+        pushEpubLine(lines, el.textContent, '【视频字幕】');
+      } else if (el.matches('.sms_wrap')) {
+        appendRichEpubBlock(lines, el, '【短信】');
+      } else if (el.matches('.sms_left')) {
+        pushEpubLine(lines, el.textContent, '【对方】');
+      } else if (el.matches('.sms_right')) {
+        pushEpubLine(lines, el.textContent, '【我】');
+      } else if (el.matches('.post_box1, .post_box1_in, .post_box2')) {
+        appendRichEpubBlock(lines, el, '【帖子】');
+      } else if (el.matches('.txt_box_black, .txt_box_black_1, .screen')) {
+        appendRichEpubBlock(lines, el, '【资料】');
+      } else if (el.tagName === 'HR') {
+        lines.push('------');
+      } else if (/^(SECTION|ARTICLE|ASIDE|HEADER|FOOTER|NAV|FIGURE|FIGCAPTION)$/.test(el.tagName)) {
+        Array.from(el.children).forEach(child => appendRichEpubElement(lines, child));
+      } else if (/^(P|H1|H2|H3|H4|H5|H6|LI|BLOCKQUOTE|PRE|DIV)$/.test(el.tagName)) {
+        pushEpubLine(lines, el.textContent);
+      } else if (cls.includes('align_center')) {
+        pushEpubLine(lines, el.textContent);
       }
+    }
+
+    function extractRichEpubBodyText(body) {
+      const lines = [];
+      Array.from(body.children).forEach(el => appendRichEpubElement(lines, el));
+      return compactEpubLines(lines.join('\n'));
+    }
+
+    function extractPlainEpubBodyText(doc, body) {
       const parts = [];
       const walker = doc.createTreeWalker(body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, null);
       const blockTags = new Set(['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'PRE', 'BR', 'TR', 'DT', 'DD', 'SECTION', 'ARTICLE', 'ASIDE', 'HEADER', 'FOOTER', 'NAV', 'FIGURE', 'FIGCAPTION']);
       let lastWasBlock = false;
       let node;
       while (node = walker.nextNode()) {
-        if (node.nodeType === Node.TEXT_NODE) {
-          if (node.textContent.trim()) {
-            parts.push(node.textContent);
-            lastWasBlock = false;
-          }
+        if (node.nodeType === Node.TEXT_NODE && cleanEpubText(node.textContent)) {
+          parts.push(node.textContent);
+          lastWasBlock = false;
         } else if (node.nodeType === Node.ELEMENT_NODE) {
           if (node.tagName === 'BR') parts.push('\n');
           else if (blockTags.has(node.tagName) && !lastWasBlock && parts.length > 0) {
@@ -1815,7 +1903,15 @@
           }
         }
       }
-      return parts.join('').replace(/\n{3,}/g, '\n\n').trim();
+      return compactEpubLines(parts.join(''));
+    }
+
+    function extractEpubBodyText(doc) {
+      const body = doc.body || doc.documentElement;
+      if (!body) return '';
+      const blocks = body.querySelectorAll('p, div, h1, h2, h3, h4, h5, h6, li, blockquote, pre, br');
+      if (blocks.length === 0) return compactEpubLines(body.textContent || '');
+      return hasRichEpubBlocks(body) ? extractRichEpubBodyText(body) : extractPlainEpubBodyText(doc, body);
     }
 
     function isEpubTocPage(doc) {
@@ -1841,8 +1937,14 @@
       };
       const spine = opfDoc.querySelector('spine');
       const tocId = spine?.getAttribute('toc');
-      const ncxItem = (tocId && manifest[tocId]) || Object.values(manifest).find(item => item.mediaType === 'application/x-dtbncx+xml');
-      if (ncxItem?.href) {
+      const ncxItems = [];
+      if (tocId && manifest[tocId]) ncxItems.push(manifest[tocId]);
+      Object.values(manifest).forEach(item => {
+        if (item.mediaType !== 'application/x-dtbncx+xml') return;
+        if (!ncxItems.some(existing => existing.href === item.href)) ncxItems.push(item);
+      });
+      for (const ncxItem of ncxItems) {
+        if (!ncxItem?.href) continue;
         const ncxPath = normalizeEpubPath(opfDir + ncxItem.href);
         const ncxText = await resolveEpubZipEntry(zip, ncxPath, ncxItem.href)?.async('text');
         if (ncxText) {
@@ -1853,7 +1955,6 @@
           });
         }
       }
-      if (tocTitles.size > 0) return tocTitles;
       const navItem = Object.values(manifest).find(item => String(item.properties || '').split(/\s+/).includes('nav'));
       if (navItem?.href) {
         const navPath = normalizeEpubPath(opfDir + navItem.href);
@@ -2078,15 +2179,11 @@
           // 🟡-1 修复：直接用 text/html 解析（更宽容，纯文本提取不需要XHTML严格性）
           const docToUse = new DOMParser().parseFromString(content, 'text/html');
 
-          // 提取章节标题：优先 h1 > h2 > h3 > title > 文件名
+          // 提取章节标题：优先标题标签 > title > 文件名
           let title = '';
-          const h1 = docToUse.querySelector('h1');
-          const h2 = docToUse.querySelector('h2');
-          const h3 = docToUse.querySelector('h3');
+          const headingEl = docToUse.querySelector('h1, h2, h3, h4, h5, h6');
           const titleEl = docToUse.querySelector('title');
-          if (h1 && h1.textContent.trim()) title = h1.textContent.trim();
-          else if (h2 && h2.textContent.trim()) title = h2.textContent.trim();
-          else if (h3 && h3.textContent.trim()) title = h3.textContent.trim();
+          if (headingEl && headingEl.textContent.trim()) title = headingEl.textContent.trim();
           else if (titleEl && titleEl.textContent.trim()) title = titleEl.textContent.trim();
           else {
             // 用文件名

@@ -8,7 +8,7 @@
   <meta property="og:title" content="我的书架">
   <meta property="og:description" content="私人小说站，零成本搭建在 Cloudflare 上">
   
-  <link rel="stylesheet" href="/style.css?v=20260430c">
+  <link rel="stylesheet" href="/style.css?v=20260503a">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#d4a574">
 </head>
@@ -30,6 +30,13 @@
     </div>
     <div id="search-results" class="search-results" style="display:none"></div>
     <div id="content" class="loading">加载中...</div>
+  </div>
+  <div class="announcement-overlay" id="announcement-overlay" hidden>
+    <section class="announcement-dialog" role="dialog" aria-modal="true" aria-labelledby="announcement-title">
+      <h2 id="announcement-title">新公开分享</h2>
+      <ul id="announcement-books"></ul>
+      <button class="btn" id="announcement-confirm" type="button">知道了</button>
+    </section>
   </div>
   <script src="/tag-search.js?v=20260430"></script>
   <script>
@@ -390,6 +397,46 @@ function renderTagFilter() {
       navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).catch(() => {});
     }
 
+    function parseAnnouncementBooks(raw) {
+      return String(raw || '').split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean)
+        .slice(0, 50);
+    }
+
+    function getAnnouncementVersion(settings, books) {
+      const explicit = String(settings.announcement_version || '').trim();
+      if (explicit) return explicit;
+      return [settings.announcement_title || '', ...books].join('|');
+    }
+
+    function maybeShowAnnouncement(settings) {
+      if (settings.announcement_enabled !== 'true') return;
+      const books = parseAnnouncementBooks(settings.announcement_books);
+      if (books.length === 0) return;
+      const version = getAnnouncementVersion(settings, books);
+      if (localStorage.getItem('announcement_seen_version') === version) return;
+      const overlay = document.getElementById('announcement-overlay');
+      const title = document.getElementById('announcement-title');
+      const list = document.getElementById('announcement-books');
+      const btn = document.getElementById('announcement-confirm');
+      title.textContent = settings.announcement_title || '新公开分享';
+      list.innerHTML = '';
+      books.forEach(name => {
+        const item = document.createElement('li');
+        item.textContent = name;
+        list.appendChild(item);
+      });
+      overlay.hidden = false;
+      requestAnimationFrame(() => overlay.classList.add('active'));
+      btn.onclick = () => {
+        localStorage.setItem('announcement_seen_version', version);
+        overlay.classList.remove('active');
+        setTimeout(() => { overlay.hidden = true; }, 180);
+      };
+      btn.focus();
+    }
+
     // 加载站点设置
     fetch('/api/settings').then(r => r.json()).then(d => {
       const s = d.settings || {};
@@ -402,6 +449,7 @@ function renderTagFilter() {
         document.querySelector('meta[name="description"]').content = s.site_desc;
         document.querySelector('meta[property="og:description"]').content = s.site_desc;
       }
+      maybeShowAnnouncement(s);
     }).catch(() => {});
   </script>
 </body>
